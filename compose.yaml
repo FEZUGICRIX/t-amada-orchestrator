@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: tamada-postgres
+    environment:
+      POSTGRES_DB: tamada
+      POSTGRES_USER: tamada
+      POSTGRES_PASSWORD: tamada
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

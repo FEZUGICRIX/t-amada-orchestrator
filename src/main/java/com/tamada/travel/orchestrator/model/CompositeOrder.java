@@ -1,8 +1,8 @@
 package com.tamada.travel.orchestrator.model;
 
+import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import jakarta.persistence.*;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import org.hibernate.annotations.UuidGenerator;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
@@ -18,7 +18,6 @@ import static org.hibernate.annotations.UuidGenerator.Style.VERSION_7;
 @Entity
 @Table(name = "composite_orders")
 @EntityListeners(AuditingEntityListener.class)
-@NoArgsConstructor
 @Getter
 public class CompositeOrder {
 
@@ -45,12 +44,67 @@ public class CompositeOrder {
     )
     private List<BookingStep> bookingSteps = new ArrayList<>();
 
-    public CompositeOrder(OrderStatus status) {
-        this.status = status;
+    protected CompositeOrder() {
+    }
+
+    public static CompositeOrder create() {
+        CompositeOrder order = new CompositeOrder();
+        order.status = OrderStatus.NEW;
+        return order;
     }
 
     public void addBookingStep(BookingType type) {
         BookingStep bookingStep = new BookingStep(this, type);
         bookingSteps.add(bookingStep);
+    }
+
+    public void startProcessing() {
+        if (status != OrderStatus.NEW) {
+            throw new InvalidStateTransitionException(
+                    "Cannot start order processing from status " + status
+            );
+        }
+
+        this.status = OrderStatus.PROCESSING;
+    }
+
+    public void complete() {
+        if (status != OrderStatus.PROCESSING) {
+            throw new InvalidStateTransitionException(
+                    "Cannot complete order from status " + status
+            );
+        }
+
+        this.status = OrderStatus.COMPLETED;
+    }
+
+    public void fail() {
+        if (status != OrderStatus.PROCESSING) {
+            throw new InvalidStateTransitionException(
+                    "Cannot fail order from status " + status
+            );
+        }
+
+        this.status = OrderStatus.FAILED;
+    }
+
+    public void startCancelling() {
+        if (status != OrderStatus.FAILED) {
+            throw new InvalidStateTransitionException(
+                    "Cannot start order cancellation from status " + status
+            );
+        }
+
+        this.status = OrderStatus.CANCELLING;
+    }
+
+    public void cancel() {
+        if (status != OrderStatus.CANCELLING) {
+            throw new InvalidStateTransitionException(
+                    "Cannot cancel order from status " + status
+            );
+        }
+
+        this.status = OrderStatus.CANCELLED;
     }
 }

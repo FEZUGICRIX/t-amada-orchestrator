@@ -1,0 +1,136 @@
+### =========================
+### ORCHESTRATOR API TESTS
+### =========================
+
+@baseUrl = http://localhost:8080
+@orderId = 01a10131-40db-780d-8f1c-9a4b0789cfd3
+
+
+### 1. Создать заказ с двумя шагами
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookingTypes": [
+    "FLIGHT",
+    "HOTEL"
+  ]
+}
+
+
+### 2. Создать полный составной заказ
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookingTypes": [
+    "FLIGHT",
+    "HOTEL",
+    "INSURANCE",
+    "TRANSFER"
+  ]
+}
+
+
+### 3. Получить заказ по ID
+GET {{baseUrl}}/api/v1/orders/{{orderId}}
+
+
+### =========================
+### VALIDATION TESTS
+### =========================
+
+### 4. Пустой список bookingTypes
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookingTypes": []
+}
+
+
+### 5. bookingTypes = null
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookingTypes": null
+}
+
+
+### 6. Null внутри списка
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookingTypes": [
+    "FLIGHT",
+    null
+  ]
+}
+
+
+### 7. Дублирующийся тип бронирования
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookingTypes": [
+    "FLIGHT",
+    "FLIGHT"
+  ]
+}
+
+
+### 8. Слишком много шагов
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookingTypes": [
+    "FLIGHT",
+    "HOTEL",
+    "INSURANCE",
+    "TRANSFER",
+    "FLIGHT"
+  ]
+}
+
+
+### 9. Некорректный BookingType
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookingTypes": [
+    "PLANE"
+  ]
+}
+
+
+### 10. Пустое тело
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+
+### 11. Некорректный JSON
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookingTypes": [
+    "FLIGHT",
+    "HOTEL"
+
+
+
+### =========================
+### NOT FOUND / PATH TESTS
+### =========================
+
+### 12. Несуществующий заказ
+GET {{baseUrl}}/api/v1/orders/00000000-0000-0000-0000-000000000000
+
+
+### 13. Некорректный UUID
+GET {{baseUrl}}/api/v1/orders/not-a-uuid

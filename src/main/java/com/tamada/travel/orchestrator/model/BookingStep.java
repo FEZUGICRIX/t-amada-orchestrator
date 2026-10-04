@@ -1,5 +1,7 @@
 package com.tamada.travel.orchestrator.model;
 
+import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
+import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -51,4 +53,60 @@ public class BookingStep {
         this.type = type;
         this.status = BookingStatus.PENDING;
     }
-}
+
+    public void startProcessing() {
+        if (status != BookingStatus.PENDING) {
+            throw new InvalidStateTransitionException(
+                    "Cannot start booking step from status " + status
+            );
+        }
+
+        this.status = BookingStatus.PROCESSING;
+    }
+
+    public void confirm(String externalId) {
+        if (status != BookingStatus.PROCESSING) {
+            throw new InvalidStateTransitionException(
+                    "Cannot confirm booking step from status " + status
+            );
+        }
+
+        if (externalId == null || externalId.isBlank()) {
+            throw new InvalidBookingDataException(
+                    "External booking id must not be empty"
+            );
+        }
+
+        this.externalId = externalId;
+        this.status = BookingStatus.CONFIRMED;
+    }
+
+    public void fail() {
+        if (status != BookingStatus.PROCESSING) {
+            throw new InvalidStateTransitionException(
+                    "Cannot fail booking step from status " + status
+            );
+        }
+
+        this.status = BookingStatus.FAILED;
+    }
+
+    public void startCancelling() {
+        if (status != BookingStatus.CONFIRMED) {
+            throw new InvalidStateTransitionException(
+                    "Cannot start cancellation from status " + status
+            );
+        }
+
+        this.status = BookingStatus.CANCELLING;
+    }
+
+    public void cancel() {
+        if (status != BookingStatus.CANCELLING) {
+            throw new InvalidStateTransitionException(
+                    "Cannot cancel booking step from status " + status
+            );
+        }
+
+        this.status = BookingStatus.CANCELLED;
+    }}

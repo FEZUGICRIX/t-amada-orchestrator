@@ -67,8 +67,7 @@ class BookingStepTest {
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                () -> step.confirm("flight-123")
-        );
+                () -> step.confirm("flight-123"));
     }
 
     @Test
@@ -77,8 +76,7 @@ class BookingStepTest {
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                step::fail
-        );
+                step::fail);
     }
 
     @Test
@@ -87,8 +85,7 @@ class BookingStepTest {
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                step::startCancelling
-        );
+                step::startCancelling);
     }
 
     @Test
@@ -99,8 +96,7 @@ class BookingStepTest {
 
         assertThrows(
                 InvalidBookingDataException.class,
-                () -> step.confirm("")
-        );
+                () -> step.confirm(""));
     }
 
     @Test
@@ -111,14 +107,81 @@ class BookingStepTest {
 
         assertThrows(
                 InvalidBookingDataException.class,
-                () -> step.confirm(null)
-        );
+                () -> step.confirm(null));
     }
 
     private BookingStep createStep() {
         return new BookingStep(
                 CompositeOrder.create(),
-                BookingType.FLIGHT
-        );
+                BookingType.FLIGHT);
+    }
+
+    @Test
+    void shouldStartFirstPendingBookingStep() {
+        CompositeOrder order = CompositeOrder.create();
+
+        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.HOTEL);
+
+        order.startProcessing();
+
+        BookingStep step = order.startNextBookingStep().orElseThrow();
+
+        assertEquals(BookingType.FLIGHT, step.getType());
+        assertEquals(BookingStatus.PROCESSING, step.getStatus());
+
+        assertEquals(
+                BookingStatus.PENDING,
+                order.getBookingSteps().get(1).getStatus());
+    }
+
+    @Test
+    void shouldNotStartNextBookingStepWhileAnotherIsProcessing() {
+        CompositeOrder order = CompositeOrder.create();
+
+        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.HOTEL);
+
+        order.startProcessing();
+
+        BookingStep firstStep = order.startNextBookingStep().orElseThrow();
+
+        assertTrue(order.startNextBookingStep().isEmpty());
+        assertEquals(BookingStatus.PROCESSING, firstStep.getStatus());
+        assertEquals(
+                BookingStatus.PENDING,
+                order.getBookingSteps().get(1).getStatus());
+    }
+
+    @Test
+    void shouldStartNextPendingBookingStep() {
+        CompositeOrder order = CompositeOrder.create();
+
+        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.HOTEL);
+
+        order.startProcessing();
+
+        BookingStep firstStep = order.startNextBookingStep().orElseThrow();
+        firstStep.confirm("flight-123");
+
+        BookingStep secondStep = order.startNextBookingStep().orElseThrow();
+
+        assertEquals(BookingType.HOTEL, secondStep.getType());
+        assertEquals(BookingStatus.PROCESSING, secondStep.getStatus());
+    }
+
+    @Test
+    void shouldReturnEmptyWhenNoPendingSteps() {
+        CompositeOrder order = CompositeOrder.create();
+
+        order.addBookingStep(BookingType.FLIGHT);
+
+        order.startProcessing();
+
+        BookingStep step = order.startNextBookingStep().orElseThrow();
+        step.confirm("flight-123");
+
+        assertTrue(order.startNextBookingStep().isEmpty());
     }
 }

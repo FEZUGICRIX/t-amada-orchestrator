@@ -42,13 +42,45 @@ class CompositeOrderTest {
     }
 
     @Test
-    void shouldCompleteOrder() {
+    void shouldCompleteOrderWhenAllBookingStepsAreConfirmed() {
         CompositeOrder order = CompositeOrder.create();
-
+        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.HOTEL);
         order.startProcessing();
+
+        BookingStep firstStep = order.startNextBookingStep().orElseThrow();
+        firstStep.confirm("flight-123");
+        BookingStep secondStep = order.startNextBookingStep().orElseThrow();
+        secondStep.confirm("hotel-123");
+
         order.complete();
 
         assertEquals(OrderStatus.COMPLETED, order.getStatus());
+    }
+
+    @Test
+    void shouldRejectCompleteWhenBookingStepIsPending() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+        order.startProcessing();
+
+        assertThrows(
+                InvalidStateTransitionException.class,
+                order::complete);
+        assertEquals(OrderStatus.PROCESSING, order.getStatus());
+    }
+
+    @Test
+    void shouldRejectCompleteWhenBookingStepIsProcessing() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+        order.startProcessing();
+        order.startNextBookingStep().orElseThrow();
+
+        assertThrows(
+                InvalidStateTransitionException.class,
+                order::complete);
+        assertEquals(OrderStatus.PROCESSING, order.getStatus());
     }
 
     @Test
@@ -69,8 +101,7 @@ class CompositeOrderTest {
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                order::complete
-        );
+                order::complete);
     }
 
     @Test
@@ -81,8 +112,7 @@ class CompositeOrderTest {
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                order::startCancelling
-        );
+                order::startCancelling);
     }
 
     @Test
@@ -93,7 +123,6 @@ class CompositeOrderTest {
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                order::startProcessing
-        );
+                order::startProcessing);
     }
 }

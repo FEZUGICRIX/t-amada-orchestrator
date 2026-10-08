@@ -70,6 +70,14 @@ public class CompositeOrder {
                     "Cannot complete order from status " + status);
         }
 
+        boolean allStepsConfirmed = bookingSteps.stream()
+                .allMatch(step -> step.getStatus() == BookingStatus.CONFIRMED);
+
+        if (!allStepsConfirmed) {
+            throw new InvalidStateTransitionException(
+                    "Cannot complete order while booking steps are not confirmed");
+        }
+
         this.status = OrderStatus.COMPLETED;
     }
 

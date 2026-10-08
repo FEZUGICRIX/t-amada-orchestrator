@@ -5,6 +5,7 @@ import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
 import com.tamada.travel.orchestrator.exception.OrderNotFoundException;
 import com.tamada.travel.orchestrator.model.OrderStatus;
 import com.tamada.travel.orchestrator.service.CompositeOrderService;
+import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -191,5 +192,46 @@ class CompositeOrderControllerTest {
                         .value(
                                 "Invalid value for parameter 'id'. Expected type: UUID"
                         ));
+    }
+
+    @Test
+    void shouldStartOrder() throws Exception {
+        UUID id = UUID.randomUUID();
+
+        OrderResponse response = new OrderResponse(
+                id,
+                OrderStatus.PROCESSING,
+                Instant.parse("2026-10-08T10:00:00Z"),
+                Instant.parse("2026-10-08T10:00:00Z"),
+                List.of()
+        );
+
+        when(service.startOrder(id))
+                .thenReturn(response);
+
+        mockMvc.perform(
+                        post("/api/v1/orders/{id}/start", id)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id.toString()))
+                .andExpect(jsonPath("$.status").value("PROCESSING"));
+    }
+
+    @Test
+    void shouldReturnConflictWhenOrderCannotBeStarted() throws Exception {
+        UUID id = UUID.randomUUID();
+
+        when(service.startOrder(id))
+                .thenThrow(
+                        new InvalidStateTransitionException(
+                                "Cannot start order processing from status PROCESSING"
+                        )
+                );
+
+        mockMvc.perform(
+                        post("/api/v1/orders/{id}/start", id)
+                )
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409));
     }
 }

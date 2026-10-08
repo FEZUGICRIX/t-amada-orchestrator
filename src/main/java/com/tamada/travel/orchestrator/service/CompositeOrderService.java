@@ -48,6 +48,16 @@ public class CompositeOrderService {
         return toResponse(order);
     }
 
+    @Transactional
+    public OrderResponse startOrder(UUID id) {
+        CompositeOrder order = repository.findById(id)
+                .orElseThrow(() -> new OrderNotFoundException(id));
+
+        order.startProcessing();
+
+        return toResponse(order);
+    }
+
     private OrderResponse toResponse(CompositeOrder order) {
         var steps = order.getBookingSteps()
                 .stream()

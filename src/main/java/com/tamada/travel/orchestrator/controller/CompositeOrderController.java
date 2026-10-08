@@ -31,4 +31,9 @@ public class CompositeOrderController {
     ) {
         return service.getOrder(id);
     }
+
+    @PostMapping("/{id}/start")
+    public OrderResponse startOrder(@PathVariable UUID id) {
+        return service.startOrder(id);
+    }
 }

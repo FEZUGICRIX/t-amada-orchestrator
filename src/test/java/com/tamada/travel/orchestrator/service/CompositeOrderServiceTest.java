@@ -92,4 +92,33 @@ class CompositeOrderServiceTest {
 
         verify(repository).findById(id);
     }
+
+    @Test
+    void shouldStartOrderProcessing() {
+        UUID id = UUID.randomUUID();
+
+        CompositeOrder order = CompositeOrder.create();
+
+        when(repository.findById(id))
+                .thenReturn(Optional.of(order));
+
+        OrderResponse response = service.startOrder(id);
+
+        assertEquals(OrderStatus.PROCESSING, response.status());
+
+        verify(repository).findById(id);
+    }
+
+    @Test
+    void shouldThrowWhenStartingMissingOrder() {
+        UUID id = UUID.randomUUID();
+
+        when(repository.findById(id))
+                .thenReturn(Optional.empty());
+
+        assertThrows(
+                OrderNotFoundException.class,
+                () -> service.startOrder(id)
+        );
+    }
 }

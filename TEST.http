@@ -134,3 +134,6 @@ GET {{baseUrl}}/api/v1/orders/00000000-0000-0000-0000-000000000000
 
 ### 13. Некорректный UUID
 GET {{baseUrl}}/api/v1/orders/not-a-uuid
+
+### Запустить обработку заказа
+POST {{baseUrl}}/api/v1/orders/{{orderId}}/start

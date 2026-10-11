@@ -41,24 +41,22 @@ class CompositeOrderControllerTest {
                 OrderStatus.NEW,
                 Instant.parse("2026-10-03T10:00:00Z"),
                 Instant.parse("2026-10-03T10:00:00Z"),
-                List.of()
-        );
+                List.of());
 
         when(service.createOrder(any()))
                 .thenReturn(response);
 
         mockMvc.perform(
-                        post("/api/v1/orders")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content("""
-                                        {
-                                          "bookingTypes": [
-                                            "FLIGHT",
-                                            "HOTEL"
-                                          ]
-                                        }
-                                        """)
-                )
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookingTypes": [
+                                    "FLIGHT",
+                                    "HOTEL"
+                                  ]
+                                }
+                                """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(id.toString()))
                 .andExpect(jsonPath("$.status").value("NEW"));
@@ -67,33 +65,30 @@ class CompositeOrderControllerTest {
     @Test
     void shouldRejectEmptyBookingTypes() throws Exception {
         mockMvc.perform(
-                        post("/api/v1/orders")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content("""
-                                        {
-                                          "bookingTypes": []
-                                        }
-                                        """)
-                )
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookingTypes": []
+                                }
+                                """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.error").value("Bad Request"))
                 .andExpect(
-                        jsonPath("$.validationErrors.bookingTypes").exists()
-                );
+                        jsonPath("$.validationErrors.bookingTypes").exists());
     }
 
     @Test
     void shouldRejectNullBookingTypes() throws Exception {
         mockMvc.perform(
-                        post("/api/v1/orders")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content("""
-                                        {
-                                          "bookingTypes": null
-                                        }
-                                        """)
-                )
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookingTypes": null
+                                }
+                                """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
     }
@@ -101,16 +96,15 @@ class CompositeOrderControllerTest {
     @Test
     void shouldRejectUnknownBookingType() throws Exception {
         mockMvc.perform(
-                        post("/api/v1/orders")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content("""
-                                        {
-                                          "bookingTypes": [
-                                            "PLANE"
-                                          ]
-                                        }
-                                        """)
-                )
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookingTypes": [
+                                    "PLANE"
+                                  ]
+                                }
+                                """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Invalid request body"));
@@ -121,22 +115,19 @@ class CompositeOrderControllerTest {
         when(service.createOrder(any()))
                 .thenThrow(
                         new InvalidBookingDataException(
-                                "Booking types must not contain duplicates"
-                        )
-                );
+                                "Booking types must not contain duplicates"));
 
         mockMvc.perform(
-                        post("/api/v1/orders")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content("""
-                                        {
-                                          "bookingTypes": [
-                                            "FLIGHT",
-                                            "FLIGHT"
-                                          ]
-                                        }
-                                        """)
-                )
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookingTypes": [
+                                    "FLIGHT",
+                                    "FLIGHT"
+                                  ]
+                                }
+                                """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.message")
@@ -152,15 +143,13 @@ class CompositeOrderControllerTest {
                 OrderStatus.NEW,
                 Instant.parse("2026-10-03T10:00:00Z"),
                 Instant.parse("2026-10-03T10:00:00Z"),
-                List.of()
-        );
+                List.of());
 
         when(service.getOrder(id))
                 .thenReturn(response);
 
         mockMvc.perform(
-                        get("/api/v1/orders/{id}", id)
-                )
+                get("/api/v1/orders/{id}", id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id.toString()))
                 .andExpect(jsonPath("$.status").value("NEW"));
@@ -174,8 +163,7 @@ class CompositeOrderControllerTest {
                 .thenThrow(new OrderNotFoundException(id));
 
         mockMvc.perform(
-                        get("/api/v1/orders/{id}", id)
-                )
+                get("/api/v1/orders/{id}", id))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.error").value("Not Found"));
@@ -184,14 +172,12 @@ class CompositeOrderControllerTest {
     @Test
     void shouldRejectInvalidUuid() throws Exception {
         mockMvc.perform(
-                        get("/api/v1/orders/not-a-uuid")
-                )
+                get("/api/v1/orders/not-a-uuid"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.message")
                         .value(
-                                "Invalid value for parameter 'id'. Expected type: UUID"
-                        ));
+                                "Invalid value for parameter 'id'. Expected type: UUID"));
     }
 
     @Test
@@ -203,15 +189,13 @@ class CompositeOrderControllerTest {
                 OrderStatus.PROCESSING,
                 Instant.parse("2026-10-08T10:00:00Z"),
                 Instant.parse("2026-10-08T10:00:00Z"),
-                List.of()
-        );
+                List.of());
 
         when(service.startOrder(id))
                 .thenReturn(response);
 
         mockMvc.perform(
-                        post("/api/v1/orders/{id}/start", id)
-                )
+                post("/api/v1/orders/{id}/start", id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id.toString()))
                 .andExpect(jsonPath("$.status").value("PROCESSING"));
@@ -224,13 +208,58 @@ class CompositeOrderControllerTest {
         when(service.startOrder(id))
                 .thenThrow(
                         new InvalidStateTransitionException(
-                                "Cannot start order processing from status PROCESSING"
-                        )
-                );
+                                "Cannot start order processing from status PROCESSING"));
 
         mockMvc.perform(
-                        post("/api/v1/orders/{id}/start", id)
-                )
+                post("/api/v1/orders/{id}/start", id))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409));
+    }
+
+    @Test
+    void shouldCancelOrder() throws Exception {
+        UUID id = UUID.randomUUID();
+        OrderResponse response = new OrderResponse(
+                id,
+                OrderStatus.CANCELLED,
+                Instant.parse("2026-10-11T10:00:00Z"),
+                Instant.parse("2026-10-11T10:00:00Z"),
+                List.of());
+
+        when(service.cancelOrder(id))
+                .thenReturn(response);
+
+        mockMvc.perform(
+                post("/api/v1/orders/{id}/cancel", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id.toString()))
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenCancellingMissingOrder() throws Exception {
+        UUID id = UUID.randomUUID();
+
+        when(service.cancelOrder(id))
+                .thenThrow(new OrderNotFoundException(id));
+
+        mockMvc.perform(
+                post("/api/v1/orders/{id}/cancel", id))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"));
+    }
+
+    @Test
+    void shouldReturnConflictWhenOrderCannotBeCancelled() throws Exception {
+        UUID id = UUID.randomUUID();
+
+        when(service.cancelOrder(id))
+                .thenThrow(new InvalidStateTransitionException(
+                        "Cannot cancel order manually from status NEW"));
+
+        mockMvc.perform(
+                post("/api/v1/orders/{id}/cancel", id))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409));
     }

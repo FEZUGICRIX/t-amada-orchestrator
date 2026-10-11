@@ -107,7 +107,9 @@ public class CompositeOrder {
     }
 
     public void startCancelling() {
-        if (status != OrderStatus.FAILED) {
+        if (status != OrderStatus.FAILED
+                && status != OrderStatus.PROCESSING
+                && status != OrderStatus.COMPLETED) {
             throw new InvalidStateTransitionException(
                     "Cannot start order cancellation from status " + status);
         }
@@ -125,8 +127,28 @@ public class CompositeOrder {
     }
 
     public void compensateConfirmedBookings() {
-        startCancelling();
+        if (status != OrderStatus.FAILED) {
+            throw new InvalidStateTransitionException(
+                    "Cannot compensate order from status " + status);
+        }
 
+        startCancelling();
+        cancelConfirmedBookingSteps();
+        cancel();
+    }
+
+    public void cancelManually() {
+        if (status != OrderStatus.PROCESSING && status != OrderStatus.COMPLETED) {
+            throw new InvalidStateTransitionException(
+                    "Cannot cancel order manually from status " + status);
+        }
+
+        startCancelling();
+        cancelConfirmedBookingSteps();
+        cancel();
+    }
+
+    private void cancelConfirmedBookingSteps() {
         for (int i = bookingSteps.size() - 1; i >= 0; i--) {
             BookingStep step = bookingSteps.get(i);
             if (step.getStatus() == BookingStatus.CONFIRMED) {
@@ -134,8 +156,6 @@ public class CompositeOrder {
                 step.cancel();
             }
         }
-
-        cancel();
     }
 
     public Optional<BookingStep> startNextBookingStep() {

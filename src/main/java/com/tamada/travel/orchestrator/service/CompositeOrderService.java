@@ -21,12 +21,10 @@ public class CompositeOrderService {
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
-        if (request.bookingTypes().stream().distinct().count()
-                != request.bookingTypes().size()) {
+        if (request.bookingTypes().stream().distinct().count() != request.bookingTypes().size()) {
 
             throw new InvalidBookingDataException(
-                    "Booking types must not contain duplicates"
-            );
+                    "Booking types must not contain duplicates");
         }
 
         CompositeOrder order = CompositeOrder.create();
@@ -58,6 +56,16 @@ public class CompositeOrderService {
         return toResponse(order);
     }
 
+    @Transactional
+    public OrderResponse cancelOrder(UUID id) {
+        CompositeOrder order = repository.findById(id)
+                .orElseThrow(() -> new OrderNotFoundException(id));
+
+        order.cancelManually();
+
+        return toResponse(order);
+    }
+
     private OrderResponse toResponse(CompositeOrder order) {
         var steps = order.getBookingSteps()
                 .stream()
@@ -65,8 +73,7 @@ public class CompositeOrderService {
                         step.getId(),
                         step.getType(),
                         step.getStatus(),
-                        step.getExternalId()
-                ))
+                        step.getExternalId()))
                 .toList();
 
         return new OrderResponse(
@@ -74,7 +81,6 @@ public class CompositeOrderService {
                 order.getStatus(),
                 order.getCreatedAt(),
                 order.getUpdatedAt(),
-                steps
-        );
+                steps);
     }
 }

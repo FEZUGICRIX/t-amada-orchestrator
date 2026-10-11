@@ -36,9 +36,7 @@ class CompositeOrderServiceTest {
         CreateOrderRequest request = new CreateOrderRequest(
                 List.of(
                         BookingType.FLIGHT,
-                        BookingType.HOTEL
-                )
-        );
+                        BookingType.HOTEL));
 
         when(repository.save(any(CompositeOrder.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -50,13 +48,11 @@ class CompositeOrderServiceTest {
 
         assertEquals(
                 BookingType.FLIGHT,
-                response.bookingSteps().get(0).type()
-        );
+                response.bookingSteps().get(0).type());
 
         assertEquals(
                 BookingType.HOTEL,
-                response.bookingSteps().get(1).type()
-        );
+                response.bookingSteps().get(1).type());
 
         verify(repository).save(any(CompositeOrder.class));
     }
@@ -66,14 +62,11 @@ class CompositeOrderServiceTest {
         CreateOrderRequest request = new CreateOrderRequest(
                 List.of(
                         BookingType.FLIGHT,
-                        BookingType.FLIGHT
-                )
-        );
+                        BookingType.FLIGHT));
 
         assertThrows(
                 InvalidBookingDataException.class,
-                () -> service.createOrder(request)
-        );
+                () -> service.createOrder(request));
 
         verify(repository, never()).save(any());
     }
@@ -87,8 +80,7 @@ class CompositeOrderServiceTest {
 
         assertThrows(
                 OrderNotFoundException.class,
-                () -> service.getOrder(id)
-        );
+                () -> service.getOrder(id));
 
         verify(repository).findById(id);
     }
@@ -118,7 +110,34 @@ class CompositeOrderServiceTest {
 
         assertThrows(
                 OrderNotFoundException.class,
-                () -> service.startOrder(id)
-        );
+                () -> service.startOrder(id));
+    }
+
+    @Test
+    void shouldCancelOrder() {
+        UUID id = UUID.randomUUID();
+        CompositeOrder order = CompositeOrder.create();
+        order.startProcessing();
+
+        when(repository.findById(id))
+                .thenReturn(Optional.of(order));
+
+        OrderResponse response = service.cancelOrder(id);
+
+        assertEquals(OrderStatus.CANCELLED, response.status());
+        verify(repository).findById(id);
+    }
+
+    @Test
+    void shouldThrowWhenCancellingMissingOrder() {
+        UUID id = UUID.randomUUID();
+
+        when(repository.findById(id))
+                .thenReturn(Optional.empty());
+
+        assertThrows(
+                OrderNotFoundException.class,
+                () -> service.cancelOrder(id));
+        verify(repository).findById(id);
     }
 }

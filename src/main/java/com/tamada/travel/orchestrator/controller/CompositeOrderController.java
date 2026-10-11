@@ -20,20 +20,23 @@ public class CompositeOrderController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public OrderResponse createOrder(
-            @Valid @RequestBody CreateOrderRequest request
-    ) {
+            @Valid @RequestBody CreateOrderRequest request) {
         return service.createOrder(request);
     }
 
     @GetMapping("/{id}")
     public OrderResponse getOrder(
-            @PathVariable UUID id
-    ) {
+            @PathVariable UUID id) {
         return service.getOrder(id);
     }
 
     @PostMapping("/{id}/start")
     public OrderResponse startOrder(@PathVariable UUID id) {
         return service.startOrder(id);
+    }
+
+    @PostMapping("/{id}/cancel")
+    public OrderResponse cancelOrder(@PathVariable UUID id) {
+        return service.cancelOrder(id);
     }
 }

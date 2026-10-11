@@ -124,6 +124,20 @@ public class CompositeOrder {
         this.status = OrderStatus.CANCELLED;
     }
 
+    public void compensateConfirmedBookings() {
+        startCancelling();
+
+        for (int i = bookingSteps.size() - 1; i >= 0; i--) {
+            BookingStep step = bookingSteps.get(i);
+            if (step.getStatus() == BookingStatus.CONFIRMED) {
+                step.startCancelling();
+                step.cancel();
+            }
+        }
+
+        cancel();
+    }
+
     public Optional<BookingStep> startNextBookingStep() {
         if (status != OrderStatus.PROCESSING) {
             return Optional.empty();

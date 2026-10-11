@@ -280,6 +280,134 @@ class CompositeOrderTest {
     }
 
     @Test
+    void shouldCancelProcessingOrder() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+        order.startProcessing();
+
+        order.cancelManually();
+
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+    }
+
+    @Test
+    void shouldCancelCompletedOrder() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+        order.startProcessing();
+        BookingStep step = order.startNextBookingStep().orElseThrow();
+        step.confirm("flight-123");
+        order.complete();
+
+        order.cancelManually();
+
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+    }
+
+    @Test
+    void shouldCancelConfirmedSteps() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.HOTEL);
+        order.startProcessing();
+        BookingStep flightStep = order.startNextBookingStep().orElseThrow();
+        flightStep.confirm("flight-123");
+        BookingStep hotelStep = order.startNextBookingStep().orElseThrow();
+        hotelStep.confirm("hotel-123");
+
+        order.cancelManually();
+
+        assertEquals(BookingStatus.CANCELLED, flightStep.getStatus());
+        assertEquals(BookingStatus.CANCELLED, hotelStep.getStatus());
+    }
+
+    @Test
+    void shouldCancelConfirmedStepsInReverseOrder() {
+        CompositeOrder order = CompositeOrder.create();
+        List<BookingType> cancellationOrder = new ArrayList<>();
+        BookingStep flightStep = new RecordingBookingStep(
+                order, BookingType.FLIGHT, cancellationOrder);
+        BookingStep hotelStep = new RecordingBookingStep(
+                order, BookingType.HOTEL, cancellationOrder);
+        order.getBookingSteps().add(flightStep);
+        order.getBookingSteps().add(hotelStep);
+        order.startProcessing();
+        flightStep.startProcessing();
+        flightStep.confirm("flight-123");
+        hotelStep.startProcessing();
+        hotelStep.confirm("hotel-123");
+
+        order.cancelManually();
+
+        assertEquals(
+                List.of(BookingType.HOTEL, BookingType.FLIGHT),
+                cancellationOrder);
+    }
+
+    @Test
+    void shouldKeepPendingStepsWhenOrderCancelled() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.HOTEL);
+        order.startProcessing();
+        BookingStep confirmedStep = order.startNextBookingStep().orElseThrow();
+        confirmedStep.confirm("flight-123");
+        BookingStep pendingStep = order.getBookingSteps().get(1);
+
+        order.cancelManually();
+
+        assertEquals(BookingStatus.CANCELLED, confirmedStep.getStatus());
+        assertEquals(BookingStatus.PENDING, pendingStep.getStatus());
+    }
+
+    @Test
+    void shouldKeepProcessingStepWhenOrderCancelled() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+        order.startProcessing();
+        BookingStep processingStep = order.startNextBookingStep().orElseThrow();
+
+        order.cancelManually();
+
+        assertEquals(BookingStatus.PROCESSING, processingStep.getStatus());
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+    }
+
+    @Test
+    void shouldRejectCancellationFromNewStatus() {
+        CompositeOrder order = CompositeOrder.create();
+
+        assertThrows(
+                InvalidStateTransitionException.class,
+                order::cancelManually);
+        assertEquals(OrderStatus.NEW, order.getStatus());
+    }
+
+    @Test
+    void shouldRejectCancellationFromCancellingStatus() {
+        CompositeOrder order = CompositeOrder.create();
+        order.startProcessing();
+        order.startCancelling();
+
+        assertThrows(
+                InvalidStateTransitionException.class,
+                order::cancelManually);
+        assertEquals(OrderStatus.CANCELLING, order.getStatus());
+    }
+
+    @Test
+    void shouldRejectCancellationFromCancelledStatus() {
+        CompositeOrder order = CompositeOrder.create();
+        order.startProcessing();
+        order.cancelManually();
+
+        assertThrows(
+                InvalidStateTransitionException.class,
+                order::cancelManually);
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+    }
+
+    @Test
     void shouldCancelFailedOrder() {
         CompositeOrder order = CompositeOrder.create();
 
@@ -301,17 +429,6 @@ class CompositeOrderTest {
     }
 
     @Test
-    void shouldRejectCancellationFromProcessingStatus() {
-        CompositeOrder order = CompositeOrder.create();
-
-        order.startProcessing();
-
-        assertThrows(
-                InvalidStateTransitionException.class,
-                order::startCancelling);
-    }
-
-    @Test
     void shouldRejectSecondProcessingStart() {
         CompositeOrder order = CompositeOrder.create();
 
@@ -329,8 +446,7 @@ class CompositeOrderTest {
         private RecordingBookingStep(
                 CompositeOrder order,
                 BookingType type,
-                List<BookingType> compensationOrder
-        ) {
+                List<BookingType> compensationOrder) {
             super(order, type);
             this.compensationOrder = compensationOrder;
         }

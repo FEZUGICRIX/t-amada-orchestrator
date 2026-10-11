@@ -90,6 +90,22 @@ public class CompositeOrder {
         this.status = OrderStatus.FAILED;
     }
 
+    public void failCurrentBookingStep() {
+        if (status != OrderStatus.PROCESSING) {
+            throw new InvalidStateTransitionException(
+                    "Cannot fail booking step when order is in status " + status);
+        }
+
+        BookingStep currentStep = bookingSteps.stream()
+                .filter(step -> step.getStatus() == BookingStatus.PROCESSING)
+                .findFirst()
+                .orElseThrow(() -> new InvalidStateTransitionException(
+                        "Cannot fail booking step because no step is processing"));
+
+        currentStep.fail();
+        fail();
+    }
+
     public void startCancelling() {
         if (status != OrderStatus.FAILED) {
             throw new InvalidStateTransitionException(
@@ -109,6 +125,10 @@ public class CompositeOrder {
     }
 
     public Optional<BookingStep> startNextBookingStep() {
+        if (status != OrderStatus.PROCESSING) {
+            return Optional.empty();
+        }
+
         boolean hasProcessingStep = bookingSteps.stream()
                 .anyMatch(step -> step.getStatus() == BookingStatus.PROCESSING);
 

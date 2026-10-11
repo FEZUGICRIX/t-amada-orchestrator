@@ -84,6 +84,87 @@ class CompositeOrderTest {
     }
 
     @Test
+    void shouldFailCurrentBookingStepAndOrder() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+        order.startProcessing();
+        BookingStep currentStep = order.startNextBookingStep().orElseThrow();
+
+        order.failCurrentBookingStep();
+
+        assertEquals(BookingStatus.FAILED, currentStep.getStatus());
+        assertEquals(OrderStatus.FAILED, order.getStatus());
+    }
+
+    @Test
+    void shouldKeepConfirmedStepsWhenCurrentStepFails() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.HOTEL);
+        order.startProcessing();
+        BookingStep confirmedStep = order.startNextBookingStep().orElseThrow();
+        confirmedStep.confirm("flight-123");
+        order.startNextBookingStep().orElseThrow();
+
+        order.failCurrentBookingStep();
+
+        assertEquals(BookingStatus.CONFIRMED, confirmedStep.getStatus());
+    }
+
+    @Test
+    void shouldKeepPendingStepsWhenCurrentStepFails() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.HOTEL);
+        order.startProcessing();
+        order.startNextBookingStep().orElseThrow();
+        BookingStep pendingStep = order.getBookingSteps().get(1);
+
+        order.failCurrentBookingStep();
+
+        assertEquals(BookingStatus.PENDING, pendingStep.getStatus());
+    }
+
+    @Test
+    void shouldNotStartNextStepAfterOrderFailed() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.HOTEL);
+        order.startProcessing();
+        order.startNextBookingStep().orElseThrow();
+
+        order.failCurrentBookingStep();
+
+        assertTrue(order.startNextBookingStep().isEmpty());
+        assertEquals(BookingStatus.PENDING, order.getBookingSteps().get(1).getStatus());
+    }
+
+    @Test
+    void shouldRejectStepFailureWhenNoStepIsProcessing() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+        order.startProcessing();
+
+        assertThrows(
+                InvalidStateTransitionException.class,
+                order::failCurrentBookingStep);
+        assertEquals(OrderStatus.PROCESSING, order.getStatus());
+        assertEquals(BookingStatus.PENDING, order.getBookingSteps().getFirst().getStatus());
+    }
+
+    @Test
+    void shouldRejectStepFailureWhenOrderIsNotProcessing() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT);
+
+        assertThrows(
+                InvalidStateTransitionException.class,
+                order::failCurrentBookingStep);
+        assertEquals(OrderStatus.NEW, order.getStatus());
+        assertEquals(BookingStatus.PENDING, order.getBookingSteps().getFirst().getStatus());
+    }
+
+    @Test
     void shouldCancelFailedOrder() {
         CompositeOrder order = CompositeOrder.create();
 

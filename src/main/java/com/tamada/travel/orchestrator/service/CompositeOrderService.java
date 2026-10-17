@@ -19,6 +19,7 @@ import java.util.UUID;
 public class CompositeOrderService {
 
     private final CompositeOrderRepository repository;
+    private final BookingOrchestrationService orchestrationService;
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
@@ -50,13 +51,8 @@ public class CompositeOrderService {
         return toResponse(order);
     }
 
-    @Transactional
     public OrderResponse startOrder(UUID id) {
-        CompositeOrder order = repository.findById(id)
-                .orElseThrow(() -> new OrderNotFoundException(id));
-
-        order.startProcessing();
-
+        CompositeOrder order = orchestrationService.orchestrate(id);
         return toResponse(order);
     }
 

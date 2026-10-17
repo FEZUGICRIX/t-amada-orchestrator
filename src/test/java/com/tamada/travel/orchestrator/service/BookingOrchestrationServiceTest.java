@@ -1,0 +1,308 @@
+package com.tamada.travel.orchestrator.service;
+
+import com.tamada.travel.orchestrator.client.BookingClient;
+import com.tamada.travel.orchestrator.client.BookingClientRegistry;
+import com.tamada.travel.orchestrator.client.dto.BookingRequest;
+import com.tamada.travel.orchestrator.client.dto.BookingResponse;
+import com.tamada.travel.orchestrator.model.BookingStatus;
+import com.tamada.travel.orchestrator.model.BookingStep;
+import com.tamada.travel.orchestrator.model.BookingType;
+import com.tamada.travel.orchestrator.model.CompositeOrder;
+import com.tamada.travel.orchestrator.model.OrderStatus;
+import com.tamada.travel.orchestrator.repository.CompositeOrderRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.lang.reflect.Proxy;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.function.Function;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class BookingOrchestrationServiceTest {
+
+    private final UUID orderId = UUID.randomUUID();
+    private final List<BookingType> invocationOrder = new ArrayList<>();
+    private final Map<BookingType, MockBookingClient> clients =
+            new EnumMap<>(BookingType.class);
+
+    private CompositeOrder storedOrder;
+    private BookingOrchestrationService service;
+
+    @BeforeEach
+    void setUp() {
+        for (BookingType type : BookingType.values()) {
+            clients.put(type, new MockBookingClient(type, invocationOrder));
+        }
+
+        BookingClientRegistry registry = new BookingClientRegistry(
+                new ArrayList<>(clients.values())
+        );
+        TransactionTemplate transactionTemplate = new TransactionTemplate(
+                new NoOpTransactionManager()
+        );
+
+        service = new BookingOrchestrationService(
+                createRepository(),
+                registry,
+                transactionTemplate
+        );
+    }
+
+    @Test
+    void shouldBookSingleStepSuccessfully() {
+        CompositeOrder order = createOrder(BookingType.FLIGHT);
+        BookingStep step = order.getBookingSteps().getFirst();
+        UUID externalBookingId = stubSuccessfulBooking(step);
+
+        service.orchestrate(orderId);
+
+        assertEquals(BookingStatus.CONFIRMED, step.getStatus());
+        assertEquals(externalBookingId.toString(), step.getExternalId());
+        assertEquals(OrderStatus.COMPLETED, order.getStatus());
+    }
+
+    @Test
+    void shouldBookMultipleStepsSequentially() {
+        CompositeOrder order = createOrder(BookingType.FLIGHT, BookingType.HOTEL);
+        BookingStep flightStep = order.getBookingSteps().get(0);
+        BookingStep hotelStep = order.getBookingSteps().get(1);
+        stubSuccessfulBooking(flightStep);
+        stubSuccessfulBooking(hotelStep);
+
+        service.orchestrate(orderId);
+
+        assertEquals(
+                List.of(BookingType.FLIGHT, BookingType.HOTEL),
+                invocationOrder
+        );
+        assertEquals(BookingStatus.CONFIRMED, flightStep.getStatus());
+        assertEquals(BookingStatus.CONFIRMED, hotelStep.getStatus());
+    }
+
+    @Test
+    void shouldUseCorrectClientForBookingType() {
+        CompositeOrder order = createOrder(
+                BookingType.FLIGHT,
+                BookingType.HOTEL,
+                BookingType.INSURANCE,
+                BookingType.TRANSFER
+        );
+        order.getBookingSteps().forEach(this::stubSuccessfulBooking);
+
+        service.orchestrate(orderId);
+
+        for (BookingType type : BookingType.values()) {
+            assertEquals(1, clients.get(type).requests().size());
+        }
+    }
+
+    @Test
+    void shouldSendResourceIdAndBookingReference() {
+        CompositeOrder order = createOrder(BookingType.FLIGHT);
+        BookingStep step = order.getBookingSteps().getFirst();
+        stubSuccessfulBooking(step);
+
+        service.orchestrate(orderId);
+
+        BookingRequest request = clients.get(BookingType.FLIGHT)
+                .requests()
+                .getFirst();
+        assertEquals(step.getResourceId(), request.resourceId());
+        assertEquals(step.getId(), request.bookingReference());
+    }
+
+    @Test
+    void shouldSaveExternalBookingId() {
+        CompositeOrder order = createOrder(BookingType.FLIGHT);
+        BookingStep step = order.getBookingSteps().getFirst();
+        UUID externalBookingId = stubSuccessfulBooking(step);
+
+        service.orchestrate(orderId);
+
+        assertEquals(externalBookingId.toString(), step.getExternalId());
+    }
+
+    @Test
+    void shouldCompleteOrderWhenAllStepsConfirmed() {
+        CompositeOrder order = createOrder(BookingType.FLIGHT, BookingType.HOTEL);
+        order.getBookingSteps().forEach(this::stubSuccessfulBooking);
+
+        service.orchestrate(orderId);
+
+        assertEquals(OrderStatus.COMPLETED, order.getStatus());
+    }
+
+    @Test
+    void shouldFailCurrentStepWhenBookingClientThrows() {
+        CompositeOrder order = createOrder(BookingType.FLIGHT);
+        BookingStep step = order.getBookingSteps().getFirst();
+        RuntimeException clientException = stubFailedBooking(step);
+
+        RuntimeException thrown = assertThrows(
+                RuntimeException.class,
+                () -> service.orchestrate(orderId)
+        );
+
+        assertSame(clientException, thrown);
+        assertEquals(BookingStatus.FAILED, step.getStatus());
+    }
+
+    @Test
+    void shouldFailOrderWhenBookingClientThrows() {
+        CompositeOrder order = createOrder(BookingType.FLIGHT);
+        BookingStep step = order.getBookingSteps().getFirst();
+        stubFailedBooking(step);
+
+        assertThrows(
+                RuntimeException.class,
+                () -> service.orchestrate(orderId)
+        );
+
+        assertEquals(OrderStatus.FAILED, order.getStatus());
+    }
+
+    @Test
+    void shouldNotStartLaterStepsAfterFailure() {
+        CompositeOrder order = createOrder(
+                BookingType.FLIGHT,
+                BookingType.HOTEL,
+                BookingType.INSURANCE,
+                BookingType.TRANSFER
+        );
+        BookingStep flightStep = order.getBookingSteps().get(0);
+        BookingStep hotelStep = order.getBookingSteps().get(1);
+        BookingStep insuranceStep = order.getBookingSteps().get(2);
+        BookingStep transferStep = order.getBookingSteps().get(3);
+        stubSuccessfulBooking(flightStep);
+        stubFailedBooking(hotelStep);
+
+        assertThrows(
+                RuntimeException.class,
+                () -> service.orchestrate(orderId)
+        );
+
+        assertEquals(BookingStatus.CONFIRMED, flightStep.getStatus());
+        assertEquals(BookingStatus.FAILED, hotelStep.getStatus());
+        assertEquals(BookingStatus.PENDING, insuranceStep.getStatus());
+        assertEquals(BookingStatus.PENDING, transferStep.getStatus());
+        assertTrue(clients.get(BookingType.INSURANCE).requests().isEmpty());
+        assertTrue(clients.get(BookingType.TRANSFER).requests().isEmpty());
+    }
+
+    private CompositeOrder createOrder(BookingType... types) {
+        CompositeOrder order = CompositeOrder.create();
+        ReflectionTestUtils.setField(order, "id", orderId);
+
+        for (BookingType type : types) {
+            order.addBookingStep(type, UUID.randomUUID());
+            BookingStep step = order.getBookingSteps().getLast();
+            ReflectionTestUtils.setField(step, "id", UUID.randomUUID());
+        }
+
+        storedOrder = order;
+        return order;
+    }
+
+    private UUID stubSuccessfulBooking(BookingStep step) {
+        UUID externalBookingId = UUID.randomUUID();
+        clients.get(step.getType()).respondWith(request -> new BookingResponse(
+                externalBookingId,
+                step.getId(),
+                "CONFIRMED",
+                Instant.parse("2026-10-17T10:00:00Z")
+        ));
+        return externalBookingId;
+    }
+
+    private RuntimeException stubFailedBooking(BookingStep step) {
+        RuntimeException exception = new RuntimeException("Booking failed");
+        clients.get(step.getType()).respondWith(request -> {
+            throw exception;
+        });
+        return exception;
+    }
+
+    private CompositeOrderRepository createRepository() {
+        return (CompositeOrderRepository) Proxy.newProxyInstance(
+                CompositeOrderRepository.class.getClassLoader(),
+                new Class<?>[]{CompositeOrderRepository.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("findById")) {
+                        return Optional.ofNullable(storedOrder);
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                }
+        );
+    }
+
+    private static class MockBookingClient implements BookingClient {
+
+        private final BookingType type;
+        private final List<BookingType> invocationOrder;
+        private final List<BookingRequest> requests = new ArrayList<>();
+        private Function<BookingRequest, BookingResponse> response;
+
+        private MockBookingClient(
+                BookingType type,
+                List<BookingType> invocationOrder
+        ) {
+            this.type = type;
+            this.invocationOrder = invocationOrder;
+        }
+
+        @Override
+        public BookingType type() {
+            return type;
+        }
+
+        @Override
+        public BookingResponse book(BookingRequest request) {
+            invocationOrder.add(type);
+            requests.add(request);
+            if (response == null) {
+                throw new IllegalStateException("Booking response is not configured");
+            }
+            return response.apply(request);
+        }
+
+        private void respondWith(Function<BookingRequest, BookingResponse> response) {
+            this.response = response;
+        }
+
+        private List<BookingRequest> requests() {
+            return requests;
+        }
+    }
+
+    private static class NoOpTransactionManager implements PlatformTransactionManager {
+
+        @Override
+        public TransactionStatus getTransaction(TransactionDefinition definition) {
+            return new SimpleTransactionStatus();
+        }
+
+        @Override
+        public void commit(TransactionStatus status) {
+        }
+
+        @Override
+        public void rollback(TransactionStatus status) {
+        }
+    }
+}

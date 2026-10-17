@@ -29,6 +29,9 @@ class CompositeOrderServiceTest {
     @Mock
     private CompositeOrderRepository repository;
 
+    @Mock
+    private BookingOrchestrationService orchestrationService;
+
     @InjectMocks
     private CompositeOrderService service;
 
@@ -99,27 +102,27 @@ class CompositeOrderServiceTest {
     }
 
     @Test
-    void shouldStartOrderProcessing() {
+    void shouldStartOrder() {
         UUID id = UUID.randomUUID();
-
         CompositeOrder order = CompositeOrder.create();
+        order.startProcessing();
+        order.complete();
 
-        when(repository.findById(id))
-                .thenReturn(Optional.of(order));
+        when(orchestrationService.orchestrate(id))
+                .thenReturn(order);
 
         OrderResponse response = service.startOrder(id);
 
-        assertEquals(OrderStatus.PROCESSING, response.status());
-
-        verify(repository).findById(id);
+        assertEquals(OrderStatus.COMPLETED, response.status());
+        verify(orchestrationService).orchestrate(id);
     }
 
     @Test
     void shouldThrowWhenStartingMissingOrder() {
         UUID id = UUID.randomUUID();
 
-        when(repository.findById(id))
-                .thenReturn(Optional.empty());
+        when(orchestrationService.orchestrate(id))
+                .thenThrow(new OrderNotFoundException(id));
 
         assertThrows(
                 OrderNotFoundException.class,

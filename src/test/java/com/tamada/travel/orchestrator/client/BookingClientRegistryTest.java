@@ -2,6 +2,8 @@ package com.tamada.travel.orchestrator.client;
 
 import com.tamada.travel.orchestrator.client.dto.BookingRequest;
 import com.tamada.travel.orchestrator.client.dto.BookingResponse;
+import com.tamada.travel.orchestrator.client.dto.CancelBookingRequest;
+import com.tamada.travel.orchestrator.client.dto.CancelBookingResponse;
 import com.tamada.travel.orchestrator.model.BookingType;
 import org.junit.jupiter.api.Test;
 
@@ -34,6 +36,11 @@ class BookingClientRegistryTest {
 
         @Override
         public BookingResponse book(BookingRequest request) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CancelBookingResponse cancel(CancelBookingRequest request) {
             throw new UnsupportedOperationException();
         }
     }

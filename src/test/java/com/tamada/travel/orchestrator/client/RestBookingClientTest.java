@@ -2,6 +2,8 @@ package com.tamada.travel.orchestrator.client;
 
 import com.tamada.travel.orchestrator.client.dto.BookingRequest;
 import com.tamada.travel.orchestrator.client.dto.BookingResponse;
+import com.tamada.travel.orchestrator.client.dto.CancelBookingRequest;
+import com.tamada.travel.orchestrator.client.dto.CancelBookingResponse;
 import com.tamada.travel.orchestrator.exception.ExternalBookingErrorType;
 import com.tamada.travel.orchestrator.exception.ExternalBookingException;
 import com.tamada.travel.orchestrator.model.BookingType;
@@ -46,7 +48,8 @@ class RestBookingClientTest {
                 type,
                 builder,
                 URI.create(baseUrl),
-                bookingPath
+                bookingPath,
+                bookingPath.replace("/book", "/cancel")
         );
         UUID resourceId = UUID.randomUUID();
         UUID bookingReference = UUID.randomUUID();
@@ -83,6 +86,121 @@ class RestBookingClientTest {
         assertEquals("CONFIRMED", response.status());
         assertEquals(createdAt, response.createdAt());
         server.verify();
+    }
+
+    @Test
+    void shouldSendCancelRequest() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BookingClient client = hotelClient(builder);
+        UUID bookingId = UUID.randomUUID();
+
+        server.expect(requestTo("http://localhost:3002/api/v1/hotel/cancel"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andRespond(withSuccess(cancelResponse(bookingId), MediaType.APPLICATION_JSON));
+
+        client.cancel(new CancelBookingRequest(bookingId));
+
+        server.verify();
+    }
+
+    @Test
+    void shouldSendExternalIdAsBookingId() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BookingClient client = hotelClient(builder);
+        UUID bookingId = UUID.randomUUID();
+
+        server.expect(requestTo("http://localhost:3002/api/v1/hotel/cancel"))
+                .andExpect(jsonPath("$.bookingId").value(bookingId.toString()))
+                .andRespond(withSuccess(cancelResponse(bookingId), MediaType.APPLICATION_JSON));
+
+        client.cancel(new CancelBookingRequest(bookingId));
+
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @MethodSource("cancellationClients")
+    void shouldUseCorrectCancelUrl(
+            BookingType type,
+            String baseUrl,
+            String bookingPath,
+            String cancellationPath
+    ) {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BookingClient client = new RestBookingClient(
+                type,
+                builder,
+                URI.create(baseUrl),
+                bookingPath,
+                cancellationPath
+        );
+        UUID bookingId = UUID.randomUUID();
+
+        server.expect(requestTo(baseUrl + cancellationPath))
+                .andRespond(withSuccess(cancelResponse(bookingId), MediaType.APPLICATION_JSON));
+
+        client.cancel(new CancelBookingRequest(bookingId));
+
+        server.verify();
+    }
+
+    @Test
+    void shouldParseSuccessfulCancelResponse() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BookingClient client = hotelClient(builder);
+        UUID bookingId = UUID.randomUUID();
+        Instant updatedAt = Instant.parse("2026-10-17T11:00:00Z");
+
+        server.expect(requestTo("http://localhost:3002/api/v1/hotel/cancel"))
+                .andRespond(withSuccess(
+                        """
+                                {
+                                  "id": "%s",
+                                  "status": "CANCELLED",
+                                  "updatedAt": "%s"
+                                }
+                                """.formatted(bookingId, updatedAt),
+                        MediaType.APPLICATION_JSON
+                ));
+
+        CancelBookingResponse response = client.cancel(
+                new CancelBookingRequest(bookingId)
+        );
+
+        assertEquals(bookingId, response.id());
+        assertEquals("CANCELLED", response.status());
+        assertEquals(updatedAt, response.updatedAt());
+        server.verify();
+    }
+
+    @Test
+    void shouldMapCancelNotFound() {
+        ExternalBookingException exception = executeCancelErrorResponse(
+                HttpStatus.NOT_FOUND,
+                "Booking does not exist"
+        );
+
+        assertEquals(ExternalBookingErrorType.NOT_FOUND, exception.getErrorType());
+        assertEquals("/api/v1/hotel/cancel", exception.getPath());
+    }
+
+    @Test
+    void shouldMapCancelServerError() {
+        ExternalBookingException exception = executeCancelErrorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Cancellation service unavailable"
+        );
+
+        assertEquals(
+                ExternalBookingErrorType.SYSTEM_FAILURE,
+                exception.getErrorType()
+        );
+        assertTrue(exception.isRetryable());
     }
 
     @Test
@@ -165,6 +283,62 @@ class RestBookingClientTest {
         );
     }
 
+    private ExternalBookingException executeCancelErrorResponse(
+            HttpStatus status,
+            String message
+    ) {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BookingClient client = hotelClient(builder);
+        String cancellationPath = "/api/v1/hotel/cancel";
+
+        server.expect(requestTo("http://localhost:3002" + cancellationPath))
+                .andRespond(withStatus(status)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {
+                                  "success": false,
+                                  "statusCode": %d,
+                                  "message": "%s",
+                                  "error": "%s",
+                                  "timestamp": "2026-10-17T10:00:00Z",
+                                  "path": "%s"
+                                }
+                                """.formatted(
+                                status.value(),
+                                message,
+                                status.getReasonPhrase(),
+                                cancellationPath
+                        )));
+
+        ExternalBookingException exception = assertThrows(
+                ExternalBookingException.class,
+                () -> client.cancel(new CancelBookingRequest(UUID.randomUUID()))
+        );
+        server.verify();
+        return exception;
+    }
+
+    private BookingClient hotelClient(RestClient.Builder builder) {
+        return new RestBookingClient(
+                BookingType.HOTEL,
+                builder,
+                URI.create("http://localhost:3002"),
+                "/api/v1/hotel/book",
+                "/api/v1/hotel/cancel"
+        );
+    }
+
+    private String cancelResponse(UUID bookingId) {
+        return """
+                {
+                  "id": "%s",
+                  "status": "CANCELLED",
+                  "updatedAt": "2026-10-17T11:00:00Z"
+                }
+                """.formatted(bookingId);
+    }
+
     private ExternalBookingException executeErrorResponse(
             HttpStatus status,
             String messageJson
@@ -177,7 +351,8 @@ class RestBookingClientTest {
                 BookingType.HOTEL,
                 builder,
                 URI.create(baseUrl),
-                bookingPath
+                bookingPath,
+                "/api/v1/hotel/cancel"
         );
 
         server.expect(requestTo(baseUrl + bookingPath))
@@ -209,6 +384,35 @@ class RestBookingClientTest {
         );
         server.verify();
         return exception;
+    }
+
+    private static Stream<Arguments> cancellationClients() {
+        return Stream.of(
+                Arguments.of(
+                        BookingType.FLIGHT,
+                        "http://localhost:3001",
+                        "/api/v1/flight/book",
+                        "/api/v1/flight/cancel"
+                ),
+                Arguments.of(
+                        BookingType.HOTEL,
+                        "http://localhost:3002",
+                        "/api/v1/hotel/book",
+                        "/api/v1/hotel/cancel"
+                ),
+                Arguments.of(
+                        BookingType.INSURANCE,
+                        "http://localhost:3003",
+                        "/api/v1/insurance/book",
+                        "/api/v1/insurance/cancel"
+                ),
+                Arguments.of(
+                        BookingType.TRANSFER,
+                        "http://localhost:3004",
+                        "/api/v1/transfer/book",
+                        "/api/v1/transfer/cancel"
+                )
+        );
     }
 
     private static Stream<Arguments> bookingClients() {

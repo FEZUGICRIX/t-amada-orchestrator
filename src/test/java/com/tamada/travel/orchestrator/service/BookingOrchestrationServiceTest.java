@@ -4,8 +4,11 @@ import com.tamada.travel.orchestrator.client.BookingClient;
 import com.tamada.travel.orchestrator.client.BookingClientRegistry;
 import com.tamada.travel.orchestrator.client.dto.BookingRequest;
 import com.tamada.travel.orchestrator.client.dto.BookingResponse;
+import com.tamada.travel.orchestrator.client.dto.CancelBookingRequest;
+import com.tamada.travel.orchestrator.client.dto.CancelBookingResponse;
 import com.tamada.travel.orchestrator.exception.ExternalBookingErrorType;
 import com.tamada.travel.orchestrator.exception.ExternalBookingException;
+import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
 import com.tamada.travel.orchestrator.model.BookingStatus;
 import com.tamada.travel.orchestrator.model.BookingStep;
 import com.tamada.travel.orchestrator.model.BookingType;
@@ -41,6 +44,7 @@ class BookingOrchestrationServiceTest {
 
     private final UUID orderId = UUID.randomUUID();
     private final List<BookingType> invocationOrder = new ArrayList<>();
+    private final List<BookingType> cancellationOrder = new ArrayList<>();
     private final Map<BookingType, MockBookingClient> clients =
             new EnumMap<>(BookingType.class);
 
@@ -50,7 +54,11 @@ class BookingOrchestrationServiceTest {
     @BeforeEach
     void setUp() {
         for (BookingType type : BookingType.values()) {
-            clients.put(type, new MockBookingClient(type, invocationOrder));
+            clients.put(type, new MockBookingClient(
+                    type,
+                    invocationOrder,
+                    cancellationOrder
+            ));
         }
 
         BookingClientRegistry registry = new BookingClientRegistry(
@@ -297,6 +305,140 @@ class BookingOrchestrationServiceTest {
     }
 
     @Test
+    void shouldCompensateConfirmedStepsExternally() {
+        PartialFailure result = orchestratePartialFailure();
+
+        assertEquals(BookingStatus.CANCELLED, result.flightStep().getStatus());
+        assertEquals(BookingStatus.CANCELLED, result.hotelStep().getStatus());
+        assertEquals(1, clients.get(BookingType.FLIGHT)
+                .cancellationRequests().size());
+        assertEquals(1, clients.get(BookingType.HOTEL)
+                .cancellationRequests().size());
+    }
+
+    @Test
+    void shouldCompensateInReverseOrder() {
+        orchestratePartialFailure();
+
+        assertEquals(
+                List.of(BookingType.HOTEL, BookingType.FLIGHT),
+                cancellationOrder
+        );
+    }
+
+    @Test
+    void shouldUseCorrectClientForCancellation() {
+        orchestratePartialFailure();
+
+        assertEquals(1, clients.get(BookingType.FLIGHT)
+                .cancellationRequests().size());
+        assertEquals(1, clients.get(BookingType.HOTEL)
+                .cancellationRequests().size());
+        assertTrue(clients.get(BookingType.INSURANCE)
+                .cancellationRequests().isEmpty());
+        assertTrue(clients.get(BookingType.TRANSFER)
+                .cancellationRequests().isEmpty());
+    }
+
+    @Test
+    void shouldSendExternalIdToCancel() {
+        PartialFailure result = orchestratePartialFailure();
+
+        assertEquals(
+                result.flightExternalId(),
+                clients.get(BookingType.FLIGHT)
+                        .cancellationRequests().getFirst().bookingId()
+        );
+        assertEquals(
+                result.hotelExternalId(),
+                clients.get(BookingType.HOTEL)
+                        .cancellationRequests().getFirst().bookingId()
+        );
+    }
+
+    @Test
+    void shouldCancelOrderAfterSuccessfulCompensation() {
+        PartialFailure result = orchestratePartialFailure();
+
+        assertEquals(OrderStatus.CANCELLED, result.order().getStatus());
+    }
+
+    @Test
+    void shouldKeepFailedStepFailed() {
+        PartialFailure result = orchestratePartialFailure();
+
+        assertEquals(BookingStatus.FAILED, result.insuranceStep().getStatus());
+    }
+
+    @Test
+    void shouldKeepPendingStepsPending() {
+        PartialFailure result = orchestratePartialFailure();
+
+        assertEquals(BookingStatus.PENDING, result.transferStep().getStatus());
+    }
+
+    @Test
+    void shouldStartCompensationAfterBookingFailure() {
+        orchestratePartialFailure();
+
+        assertEquals(2, cancellationOrder.size());
+    }
+
+    @Test
+    void shouldNotCallCancelForPendingStep() {
+        orchestratePartialFailure();
+
+        assertTrue(clients.get(BookingType.TRANSFER)
+                .cancellationRequests().isEmpty());
+    }
+
+    @Test
+    void shouldNotCallCancelForFailedStep() {
+        orchestratePartialFailure();
+
+        assertTrue(clients.get(BookingType.INSURANCE)
+                .cancellationRequests().isEmpty());
+    }
+
+    @Test
+    void shouldFailCompensationWhenExternalIdMissing() {
+        CompositeOrder order = createOrder(BookingType.FLIGHT, BookingType.HOTEL);
+        BookingStep flightStep = order.getBookingSteps().getFirst();
+        BookingStep hotelStep = order.getBookingSteps().getLast();
+        stubSuccessfulBooking(flightStep);
+        clients.get(BookingType.HOTEL).respondWith(request -> {
+            ReflectionTestUtils.setField(flightStep, "externalId", null);
+            throw new RuntimeException("Hotel booking failed");
+        });
+
+        InvalidBookingDataException exception = assertThrows(
+                InvalidBookingDataException.class,
+                () -> service.orchestrate(orderId)
+        );
+
+        assertTrue(exception.getMessage().contains("External booking id is missing"));
+        assertEquals(BookingStatus.CONFIRMED, flightStep.getStatus());
+        assertEquals(BookingStatus.FAILED, hotelStep.getStatus());
+        assertEquals(OrderStatus.FAILED, order.getStatus());
+        assertTrue(cancellationOrder.isEmpty());
+    }
+
+    @Test
+    void shouldNotMarkStepCancelledWhenCancelRequestFails() {
+        CompensationFailure result = orchestrateCancellationFailure();
+
+        assertEquals(BookingStatus.CANCELLING, result.hotelStep().getStatus());
+        assertEquals(BookingStatus.CONFIRMED, result.flightStep().getStatus());
+    }
+
+    @Test
+    void shouldNotMarkOrderCancelledWhenCompensationFails() {
+        CompensationFailure result = orchestrateCancellationFailure();
+
+        assertEquals(OrderStatus.CANCELLING, result.order().getStatus());
+    }
+
+    @Test
     void shouldNotStartLaterStepsAfterFailure() {
         CompositeOrder order = createOrder(
                 BookingType.FLIGHT,
@@ -316,12 +458,87 @@ class BookingOrchestrationServiceTest {
                 () -> service.orchestrate(orderId)
         );
 
-        assertEquals(BookingStatus.CONFIRMED, flightStep.getStatus());
+        assertEquals(BookingStatus.CANCELLED, flightStep.getStatus());
         assertEquals(BookingStatus.FAILED, hotelStep.getStatus());
         assertEquals(BookingStatus.PENDING, insuranceStep.getStatus());
         assertEquals(BookingStatus.PENDING, transferStep.getStatus());
         assertTrue(clients.get(BookingType.INSURANCE).requests().isEmpty());
         assertTrue(clients.get(BookingType.TRANSFER).requests().isEmpty());
+    }
+
+    private PartialFailure orchestratePartialFailure() {
+        CompositeOrder order = createOrder(
+                BookingType.FLIGHT,
+                BookingType.HOTEL,
+                BookingType.INSURANCE,
+                BookingType.TRANSFER
+        );
+        BookingStep flightStep = order.getBookingSteps().get(0);
+        BookingStep hotelStep = order.getBookingSteps().get(1);
+        BookingStep insuranceStep = order.getBookingSteps().get(2);
+        BookingStep transferStep = order.getBookingSteps().get(3);
+        UUID flightExternalId = stubSuccessfulBooking(flightStep);
+        UUID hotelExternalId = stubSuccessfulBooking(hotelStep);
+        stubExternalFailure(
+                insuranceStep,
+                HttpStatus.CONFLICT,
+                ExternalBookingErrorType.RESOURCE_UNAVAILABLE
+        );
+
+        assertThrows(
+                ExternalBookingException.class,
+                () -> service.orchestrate(orderId)
+        );
+
+        return new PartialFailure(
+                order,
+                flightStep,
+                hotelStep,
+                insuranceStep,
+                transferStep,
+                flightExternalId,
+                hotelExternalId
+        );
+    }
+
+    private CompensationFailure orchestrateCancellationFailure() {
+        CompositeOrder order = createOrder(
+                BookingType.FLIGHT,
+                BookingType.HOTEL,
+                BookingType.INSURANCE
+        );
+        BookingStep flightStep = order.getBookingSteps().get(0);
+        BookingStep hotelStep = order.getBookingSteps().get(1);
+        BookingStep insuranceStep = order.getBookingSteps().get(2);
+        stubSuccessfulBooking(flightStep);
+        stubSuccessfulBooking(hotelStep);
+        stubExternalFailure(
+                insuranceStep,
+                HttpStatus.CONFLICT,
+                ExternalBookingErrorType.RESOURCE_UNAVAILABLE
+        );
+        ExternalBookingException cancellationFailure = new ExternalBookingException(
+                HttpStatus.NOT_FOUND,
+                BookingType.HOTEL,
+                ExternalBookingErrorType.NOT_FOUND,
+                "External booking not found",
+                "/api/v1/hotel/cancel",
+                null
+        );
+        clients.get(BookingType.HOTEL).respondToCancellationWith(request -> {
+            throw cancellationFailure;
+        });
+
+        ExternalBookingException thrown = assertThrows(
+                ExternalBookingException.class,
+                () -> service.orchestrate(orderId)
+        );
+
+        assertSame(cancellationFailure, thrown);
+        assertEquals(1, thrown.getSuppressed().length);
+        assertTrue(clients.get(BookingType.FLIGHT)
+                .cancellationRequests().isEmpty());
+        return new CompensationFailure(order, flightStep, hotelStep);
     }
 
     private CompositeOrder orchestrateExternalFailure(
@@ -401,19 +618,49 @@ class BookingOrchestrationServiceTest {
         );
     }
 
+    private record PartialFailure(
+            CompositeOrder order,
+            BookingStep flightStep,
+            BookingStep hotelStep,
+            BookingStep insuranceStep,
+            BookingStep transferStep,
+            UUID flightExternalId,
+            UUID hotelExternalId
+    ) {
+    }
+
+    private record CompensationFailure(
+            CompositeOrder order,
+            BookingStep flightStep,
+            BookingStep hotelStep
+    ) {
+    }
+
     private static class MockBookingClient implements BookingClient {
 
         private final BookingType type;
         private final List<BookingType> invocationOrder;
+        private final List<BookingType> cancellationOrder;
         private final List<BookingRequest> requests = new ArrayList<>();
+        private final List<CancelBookingRequest> cancellationRequests =
+                new ArrayList<>();
         private Function<BookingRequest, BookingResponse> response;
+        private Function<CancelBookingRequest, CancelBookingResponse>
+                cancellationResponse;
 
         private MockBookingClient(
                 BookingType type,
-                List<BookingType> invocationOrder
+                List<BookingType> invocationOrder,
+                List<BookingType> cancellationOrder
         ) {
             this.type = type;
             this.invocationOrder = invocationOrder;
+            this.cancellationOrder = cancellationOrder;
+            this.cancellationResponse = request -> new CancelBookingResponse(
+                    request.bookingId(),
+                    "CANCELLED",
+                    Instant.parse("2026-10-17T11:00:00Z")
+            );
         }
 
         @Override
@@ -431,12 +678,29 @@ class BookingOrchestrationServiceTest {
             return response.apply(request);
         }
 
+        @Override
+        public CancelBookingResponse cancel(CancelBookingRequest request) {
+            cancellationOrder.add(type);
+            cancellationRequests.add(request);
+            return cancellationResponse.apply(request);
+        }
+
         private void respondWith(Function<BookingRequest, BookingResponse> response) {
             this.response = response;
         }
 
+        private void respondToCancellationWith(
+                Function<CancelBookingRequest, CancelBookingResponse> response
+        ) {
+            this.cancellationResponse = response;
+        }
+
         private List<BookingRequest> requests() {
             return requests;
+        }
+
+        private List<CancelBookingRequest> cancellationRequests() {
+            return cancellationRequests;
         }
     }
 

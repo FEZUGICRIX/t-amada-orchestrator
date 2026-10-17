@@ -23,7 +23,8 @@ public class BookingClientConfiguration {
                 BookingType.FLIGHT,
                 builder,
                 properties.flight().baseUrl(),
-                "/api/v1/flight/book"
+                "/api/v1/flight/book",
+                "/api/v1/flight/cancel"
         );
     }
 
@@ -36,7 +37,8 @@ public class BookingClientConfiguration {
                 BookingType.HOTEL,
                 builder,
                 properties.hotel().baseUrl(),
-                "/api/v1/hotel/book"
+                "/api/v1/hotel/book",
+                "/api/v1/hotel/cancel"
         );
     }
 
@@ -49,7 +51,8 @@ public class BookingClientConfiguration {
                 BookingType.INSURANCE,
                 builder,
                 properties.insurance().baseUrl(),
-                "/api/v1/insurance/book"
+                "/api/v1/insurance/book",
+                "/api/v1/insurance/cancel"
         );
     }
 
@@ -62,7 +65,8 @@ public class BookingClientConfiguration {
                 BookingType.TRANSFER,
                 builder,
                 properties.transfer().baseUrl(),
-                "/api/v1/transfer/book"
+                "/api/v1/transfer/book",
+                "/api/v1/transfer/cancel"
         );
     }
 
@@ -70,13 +74,15 @@ public class BookingClientConfiguration {
             BookingType type,
             RestClient.Builder builder,
             URI baseUrl,
-            String bookingPath
+            String bookingPath,
+            String cancellationPath
     ) {
         return new RestBookingClient(
                 type,
                 builder.clone(),
                 baseUrl,
-                bookingPath
+                bookingPath,
+                cancellationPath
         );
     }
 }

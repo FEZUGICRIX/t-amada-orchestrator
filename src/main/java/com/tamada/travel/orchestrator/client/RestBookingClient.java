@@ -2,6 +2,8 @@ package com.tamada.travel.orchestrator.client;
 
 import com.tamada.travel.orchestrator.client.dto.BookingRequest;
 import com.tamada.travel.orchestrator.client.dto.BookingResponse;
+import com.tamada.travel.orchestrator.client.dto.CancelBookingRequest;
+import com.tamada.travel.orchestrator.client.dto.CancelBookingResponse;
 import com.tamada.travel.orchestrator.client.dto.ExternalServiceErrorResponse;
 import com.tamada.travel.orchestrator.exception.ExternalBookingErrorType;
 import com.tamada.travel.orchestrator.exception.ExternalBookingException;
@@ -17,16 +19,19 @@ public class RestBookingClient implements BookingClient {
     private final BookingType type;
     private final RestClient restClient;
     private final String bookingPath;
+    private final String cancellationPath;
 
     public RestBookingClient(
             BookingType type,
             RestClient.Builder builder,
             URI baseUrl,
-            String bookingPath
+            String bookingPath,
+            String cancellationPath
     ) {
         this.type = type;
         this.restClient = builder.baseUrl(baseUrl).build();
         this.bookingPath = bookingPath;
+        this.cancellationPath = cancellationPath;
     }
 
     @Override
@@ -44,18 +49,33 @@ public class RestBookingClient implements BookingClient {
                     .retrieve()
                     .body(BookingResponse.class);
         } catch (RestClientResponseException exception) {
-            throw mapException(exception);
+            throw mapException(exception, bookingPath);
+        }
+    }
+
+    @Override
+    public CancelBookingResponse cancel(CancelBookingRequest request) {
+        try {
+            return restClient.post()
+                    .uri(cancellationPath)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .body(CancelBookingResponse.class);
+        } catch (RestClientResponseException exception) {
+            throw mapException(exception, cancellationPath);
         }
     }
 
     private ExternalBookingException mapException(
-            RestClientResponseException exception
+            RestClientResponseException exception,
+            String requestPath
     ) {
         ExternalServiceErrorResponse errorResponse = parseErrorResponse(exception);
         String message = errorResponse == null
                 ? exception.getStatusText()
                 : errorResponse.messageText();
-        String path = errorResponse == null ? bookingPath : errorResponse.path();
+        String path = errorResponse == null ? requestPath : errorResponse.path();
 
         if (message == null || message.isBlank()) {
             message = exception.getStatusText();

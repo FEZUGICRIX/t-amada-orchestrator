@@ -4,9 +4,13 @@ import com.tamada.travel.orchestrator.client.BookingClient;
 import com.tamada.travel.orchestrator.client.BookingClientRegistry;
 import com.tamada.travel.orchestrator.client.dto.BookingRequest;
 import com.tamada.travel.orchestrator.client.dto.BookingResponse;
+import com.tamada.travel.orchestrator.client.dto.CancelBookingRequest;
+import com.tamada.travel.orchestrator.client.dto.CancelBookingResponse;
 import com.tamada.travel.orchestrator.exception.ExternalBookingException;
+import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
 import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import com.tamada.travel.orchestrator.exception.OrderNotFoundException;
+import com.tamada.travel.orchestrator.model.BookingStatus;
 import com.tamada.travel.orchestrator.model.BookingStep;
 import com.tamada.travel.orchestrator.model.BookingType;
 import com.tamada.travel.orchestrator.model.CompositeOrder;
@@ -16,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -73,7 +78,6 @@ public class BookingOrchestrationService {
                 return true;
             });
         } catch (ExternalBookingException exception) {
-            failCurrentStep(orderId);
             log.warn(
                     "External booking failed: orderId={}, bookingStepId={}, "
                             + "bookingType={}, httpStatus={}, message={}",
@@ -83,10 +87,21 @@ public class BookingOrchestrationService {
                     exception.getHttpStatus().value(),
                     exception.getMessage()
             );
+            handleBookingFailure(orderId, exception);
             throw exception;
         } catch (RuntimeException exception) {
-            failCurrentStep(orderId);
+            handleBookingFailure(orderId, exception);
             throw exception;
+        }
+    }
+
+    private void handleBookingFailure(UUID orderId, RuntimeException bookingFailure) {
+        failCurrentStep(orderId);
+        try {
+            compensateConfirmedSteps(orderId);
+        } catch (RuntimeException compensationFailure) {
+            compensationFailure.addSuppressed(bookingFailure);
+            throw compensationFailure;
         }
     }
 
@@ -95,6 +110,111 @@ public class BookingOrchestrationService {
             findOrder(orderId).failCurrentBookingStep();
             return true;
         });
+    }
+
+    private void compensateConfirmedSteps(UUID orderId) {
+        List<CancellationCommand> commands = inTransaction(
+                () -> startCompensation(orderId)
+        );
+        if (commands.isEmpty()) {
+            return;
+        }
+
+        for (CancellationCommand command : commands) {
+            cancelStep(orderId, command);
+        }
+
+        inTransaction(() -> {
+            findOrder(orderId).cancel();
+            return true;
+        });
+    }
+
+    private List<CancellationCommand> startCompensation(UUID orderId) {
+        CompositeOrder order = findOrder(orderId);
+        List<CancellationCommand> commands = order.getBookingSteps()
+                .reversed()
+                .stream()
+                .filter(step -> step.getStatus() == BookingStatus.CONFIRMED)
+                .map(this::toCancellationCommand)
+                .toList();
+
+        if (!commands.isEmpty()) {
+            order.startCancelling();
+        }
+        return commands;
+    }
+
+    private CancellationCommand toCancellationCommand(BookingStep step) {
+        String externalId = step.getExternalId();
+        if (externalId == null || externalId.isBlank()) {
+            throw new InvalidBookingDataException(
+                    "External booking id is missing for step " + step.getId()
+            );
+        }
+
+        try {
+            return new CancellationCommand(
+                    step.getId(),
+                    step.getType(),
+                    UUID.fromString(externalId)
+            );
+        } catch (IllegalArgumentException exception) {
+            throw new InvalidBookingDataException(
+                    "External booking id is not a UUID for step " + step.getId()
+            );
+        }
+    }
+
+    private void cancelStep(UUID orderId, CancellationCommand command) {
+        inTransaction(() -> {
+            findBookingStep(orderId, command.stepId()).startCancelling();
+            return true;
+        });
+
+        try {
+            BookingClient client = clientRegistry.getClient(command.type());
+            CancelBookingResponse response = client.cancel(
+                    new CancelBookingRequest(command.externalBookingId())
+            );
+            validateCancellationResponse(command, response);
+        } catch (ExternalBookingException exception) {
+            log.warn(
+                    "External cancellation failed: orderId={}, bookingStepId={}, "
+                            + "bookingType={}, httpStatus={}, message={}",
+                    orderId,
+                    command.stepId(),
+                    command.type(),
+                    exception.getHttpStatus().value(),
+                    exception.getMessage()
+            );
+            throw exception;
+        }
+
+        inTransaction(() -> {
+            findBookingStep(orderId, command.stepId()).cancel();
+            return true;
+        });
+    }
+
+    private void validateCancellationResponse(
+            CancellationCommand command,
+            CancelBookingResponse response
+    ) {
+        if (response == null) {
+            throw new IllegalStateException("External cancellation returned no response");
+        }
+        if (!command.externalBookingId().equals(response.id())) {
+            throw new IllegalStateException(
+                    "Cancellation response id does not match external booking "
+                            + command.externalBookingId()
+            );
+        }
+        if (!"CANCELLED".equals(response.status())) {
+            throw new IllegalStateException(
+                    "Unexpected external cancellation status: " + response.status()
+            );
+        }
     }
 
     private void validateBookingReference(
@@ -114,18 +234,17 @@ public class BookingOrchestrationService {
             UUID bookingReference,
             UUID externalBookingId
     ) {
-        CompositeOrder order = findOrder(orderId);
-        BookingStep step = order.getBookingSteps().stream()
-                .filter(candidate -> Objects.equals(
-                        candidate.getId(),
-                        bookingReference
-                ))
+        findBookingStep(orderId, bookingReference)
+                .confirm(externalBookingId.toString());
+    }
+
+    private BookingStep findBookingStep(UUID orderId, UUID stepId) {
+        return findOrder(orderId).getBookingSteps().stream()
+                .filter(candidate -> Objects.equals(candidate.getId(), stepId))
                 .findFirst()
                 .orElseThrow(() -> new InvalidStateTransitionException(
-                        "Booking step not found: " + bookingReference
+                        "Booking step not found: " + stepId
                 ));
-
-        step.confirm(externalBookingId.toString());
     }
 
     private CompositeOrder completeOrder(UUID orderId) {
@@ -149,6 +268,13 @@ public class BookingOrchestrationService {
             UUID bookingReference,
             BookingType type,
             UUID resourceId
+    ) {
+    }
+
+    private record CancellationCommand(
+            UUID stepId,
+            BookingType type,
+            UUID externalBookingId
     ) {
     }
 }

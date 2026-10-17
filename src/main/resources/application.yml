@@ -15,3 +15,13 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+
+services:
+  flight:
+    base-url: http://localhost:3001
+  hotel:
+    base-url: http://localhost:3002
+  insurance:
+    base-url: http://localhost:3003
+  transfer:
+    base-url: http://localhost:3004

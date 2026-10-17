@@ -2,9 +2,13 @@ package com.tamada.travel.orchestrator.client;
 
 import com.tamada.travel.orchestrator.client.dto.BookingRequest;
 import com.tamada.travel.orchestrator.client.dto.BookingResponse;
+import com.tamada.travel.orchestrator.client.dto.ExternalServiceErrorResponse;
+import com.tamada.travel.orchestrator.exception.ExternalBookingErrorType;
+import com.tamada.travel.orchestrator.exception.ExternalBookingException;
 import com.tamada.travel.orchestrator.model.BookingType;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.net.URI;
 
@@ -32,11 +36,58 @@ public class RestBookingClient implements BookingClient {
 
     @Override
     public BookingResponse book(BookingRequest request) {
-        return restClient.post()
-                .uri(bookingPath)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(request)
-                .retrieve()
-                .body(BookingResponse.class);
+        try {
+            return restClient.post()
+                    .uri(bookingPath)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .body(BookingResponse.class);
+        } catch (RestClientResponseException exception) {
+            throw mapException(exception);
+        }
+    }
+
+    private ExternalBookingException mapException(
+            RestClientResponseException exception
+    ) {
+        ExternalServiceErrorResponse errorResponse = parseErrorResponse(exception);
+        String message = errorResponse == null
+                ? exception.getStatusText()
+                : errorResponse.messageText();
+        String path = errorResponse == null ? bookingPath : errorResponse.path();
+
+        if (message == null || message.isBlank()) {
+            message = exception.getStatusText();
+        }
+
+        return new ExternalBookingException(
+                exception.getStatusCode(),
+                type,
+                errorType(exception.getStatusCode().value()),
+                message,
+                path,
+                exception
+        );
+    }
+
+    private ExternalServiceErrorResponse parseErrorResponse(
+            RestClientResponseException exception
+    ) {
+        try {
+            return exception.getResponseBodyAs(ExternalServiceErrorResponse.class);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private ExternalBookingErrorType errorType(int statusCode) {
+        return switch (statusCode) {
+            case 400 -> ExternalBookingErrorType.VALIDATION_ERROR;
+            case 404 -> ExternalBookingErrorType.NOT_FOUND;
+            case 409 -> ExternalBookingErrorType.RESOURCE_UNAVAILABLE;
+            case 500 -> ExternalBookingErrorType.SYSTEM_FAILURE;
+            default -> ExternalBookingErrorType.UNKNOWN;
+        };
     }
 }

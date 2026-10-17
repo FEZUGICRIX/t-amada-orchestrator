@@ -4,6 +4,7 @@ import com.tamada.travel.orchestrator.client.BookingClient;
 import com.tamada.travel.orchestrator.client.BookingClientRegistry;
 import com.tamada.travel.orchestrator.client.dto.BookingRequest;
 import com.tamada.travel.orchestrator.client.dto.BookingResponse;
+import com.tamada.travel.orchestrator.exception.ExternalBookingException;
 import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import com.tamada.travel.orchestrator.exception.OrderNotFoundException;
 import com.tamada.travel.orchestrator.model.BookingStep;
@@ -11,6 +12,7 @@ import com.tamada.travel.orchestrator.model.BookingType;
 import com.tamada.travel.orchestrator.model.CompositeOrder;
 import com.tamada.travel.orchestrator.repository.CompositeOrderRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -21,6 +23,7 @@ import java.util.function.Supplier;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class BookingOrchestrationService {
 
     private final CompositeOrderRepository repository;
@@ -69,13 +72,29 @@ public class BookingOrchestrationService {
                 confirmStep(orderId, step.bookingReference(), response.id());
                 return true;
             });
+        } catch (ExternalBookingException exception) {
+            failCurrentStep(orderId);
+            log.warn(
+                    "External booking failed: orderId={}, bookingStepId={}, "
+                            + "bookingType={}, httpStatus={}, message={}",
+                    orderId,
+                    step.bookingReference(),
+                    step.type(),
+                    exception.getHttpStatus().value(),
+                    exception.getMessage()
+            );
+            throw exception;
         } catch (RuntimeException exception) {
-            inTransaction(() -> {
-                findOrder(orderId).failCurrentBookingStep();
-                return true;
-            });
+            failCurrentStep(orderId);
             throw exception;
         }
+    }
+
+    private void failCurrentStep(UUID orderId) {
+        inTransaction(() -> {
+            findOrder(orderId).failCurrentBookingStep();
+            return true;
+        });
     }
 
     private void validateBookingReference(

@@ -4,6 +4,8 @@ import com.tamada.travel.orchestrator.client.BookingClient;
 import com.tamada.travel.orchestrator.client.BookingClientRegistry;
 import com.tamada.travel.orchestrator.client.dto.BookingRequest;
 import com.tamada.travel.orchestrator.client.dto.BookingResponse;
+import com.tamada.travel.orchestrator.exception.ExternalBookingErrorType;
+import com.tamada.travel.orchestrator.exception.ExternalBookingException;
 import com.tamada.travel.orchestrator.model.BookingStatus;
 import com.tamada.travel.orchestrator.model.BookingStep;
 import com.tamada.travel.orchestrator.model.BookingType;
@@ -12,6 +14,7 @@ import com.tamada.travel.orchestrator.model.OrderStatus;
 import com.tamada.travel.orchestrator.repository.CompositeOrderRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -178,6 +181,122 @@ class BookingOrchestrationServiceTest {
     }
 
     @Test
+    void shouldFailStepOnBadRequest() {
+        CompositeOrder order = orchestrateExternalFailure(
+                HttpStatus.BAD_REQUEST,
+                ExternalBookingErrorType.VALIDATION_ERROR
+        );
+
+        assertEquals(
+                BookingStatus.FAILED,
+                order.getBookingSteps().getFirst().getStatus()
+        );
+    }
+
+    @Test
+    void shouldFailOrderOnBadRequest() {
+        CompositeOrder order = orchestrateExternalFailure(
+                HttpStatus.BAD_REQUEST,
+                ExternalBookingErrorType.VALIDATION_ERROR
+        );
+
+        assertEquals(OrderStatus.FAILED, order.getStatus());
+    }
+
+    @Test
+    void shouldFailStepOnNotFound() {
+        CompositeOrder order = orchestrateExternalFailure(
+                HttpStatus.NOT_FOUND,
+                ExternalBookingErrorType.NOT_FOUND
+        );
+
+        assertEquals(
+                BookingStatus.FAILED,
+                order.getBookingSteps().getFirst().getStatus()
+        );
+    }
+
+    @Test
+    void shouldFailOrderOnNotFound() {
+        CompositeOrder order = orchestrateExternalFailure(
+                HttpStatus.NOT_FOUND,
+                ExternalBookingErrorType.NOT_FOUND
+        );
+
+        assertEquals(OrderStatus.FAILED, order.getStatus());
+    }
+
+    @Test
+    void shouldFailStepOnConflict() {
+        CompositeOrder order = orchestrateExternalFailure(
+                HttpStatus.CONFLICT,
+                ExternalBookingErrorType.RESOURCE_UNAVAILABLE
+        );
+
+        assertEquals(
+                BookingStatus.FAILED,
+                order.getBookingSteps().getFirst().getStatus()
+        );
+    }
+
+    @Test
+    void shouldFailOrderOnConflict() {
+        CompositeOrder order = orchestrateExternalFailure(
+                HttpStatus.CONFLICT,
+                ExternalBookingErrorType.RESOURCE_UNAVAILABLE
+        );
+
+        assertEquals(OrderStatus.FAILED, order.getStatus());
+    }
+
+    @Test
+    void shouldNotStartNextStepAfterConflict() {
+        CompositeOrder order = createOrder(BookingType.FLIGHT, BookingType.HOTEL);
+        BookingStep firstStep = order.getBookingSteps().getFirst();
+        stubExternalFailure(
+                firstStep,
+                HttpStatus.CONFLICT,
+                ExternalBookingErrorType.RESOURCE_UNAVAILABLE
+        );
+
+        assertThrows(
+                ExternalBookingException.class,
+                () -> service.orchestrate(orderId)
+        );
+
+        assertEquals(1, clients.get(BookingType.FLIGHT).requests().size());
+        assertEquals(BookingStatus.FAILED, firstStep.getStatus());
+        assertEquals(
+                BookingStatus.PENDING,
+                order.getBookingSteps().getLast().getStatus()
+        );
+        assertTrue(clients.get(BookingType.HOTEL).requests().isEmpty());
+    }
+
+    @Test
+    void shouldFailStepOnExternalServerError() {
+        CompositeOrder order = orchestrateExternalFailure(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ExternalBookingErrorType.SYSTEM_FAILURE
+        );
+
+        assertEquals(
+                BookingStatus.FAILED,
+                order.getBookingSteps().getFirst().getStatus()
+        );
+    }
+
+    @Test
+    void shouldFailOrderOnExternalServerError() {
+        CompositeOrder order = orchestrateExternalFailure(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ExternalBookingErrorType.SYSTEM_FAILURE
+        );
+
+        assertEquals(OrderStatus.FAILED, order.getStatus());
+    }
+
+    @Test
     void shouldNotStartLaterStepsAfterFailure() {
         CompositeOrder order = createOrder(
                 BookingType.FLIGHT,
@@ -203,6 +322,37 @@ class BookingOrchestrationServiceTest {
         assertEquals(BookingStatus.PENDING, transferStep.getStatus());
         assertTrue(clients.get(BookingType.INSURANCE).requests().isEmpty());
         assertTrue(clients.get(BookingType.TRANSFER).requests().isEmpty());
+    }
+
+    private CompositeOrder orchestrateExternalFailure(
+            HttpStatus status,
+            ExternalBookingErrorType errorType
+    ) {
+        CompositeOrder order = createOrder(BookingType.FLIGHT);
+        stubExternalFailure(order.getBookingSteps().getFirst(), status, errorType);
+
+        assertThrows(
+                ExternalBookingException.class,
+                () -> service.orchestrate(orderId)
+        );
+        return order;
+    }
+
+    private void stubExternalFailure(
+            BookingStep step,
+            HttpStatus status,
+            ExternalBookingErrorType errorType
+    ) {
+        clients.get(step.getType()).respondWith(request -> {
+            throw new ExternalBookingException(
+                    status,
+                    step.getType(),
+                    errorType,
+                    "External booking failed",
+                    "/api/v1/flight/book",
+                    null
+            );
+        });
     }
 
     private CompositeOrder createOrder(BookingType... types) {

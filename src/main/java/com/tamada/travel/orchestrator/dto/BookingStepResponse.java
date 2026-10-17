@@ -8,6 +8,7 @@ import java.util.UUID;
 public record BookingStepResponse(
         UUID id,
         BookingType type,
+        UUID resourceId,
         BookingStatus status,
         String externalId
 ) {

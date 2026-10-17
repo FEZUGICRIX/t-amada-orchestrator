@@ -1,6 +1,7 @@
 package com.tamada.travel.orchestrator.service;
 
 import com.tamada.travel.orchestrator.dto.BookingStepResponse;
+import com.tamada.travel.orchestrator.dto.CreateBookingStepRequest;
 import com.tamada.travel.orchestrator.dto.CreateOrderRequest;
 import com.tamada.travel.orchestrator.dto.OrderResponse;
 import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
@@ -21,7 +22,10 @@ public class CompositeOrderService {
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
-        if (request.bookingTypes().stream().distinct().count() != request.bookingTypes().size()) {
+        if (request.bookings().stream()
+                .map(CreateBookingStepRequest::type)
+                .distinct()
+                .count() != request.bookings().size()) {
 
             throw new InvalidBookingDataException(
                     "Booking types must not contain duplicates");
@@ -29,8 +33,8 @@ public class CompositeOrderService {
 
         CompositeOrder order = CompositeOrder.create();
 
-        for (var type : request.bookingTypes()) {
-            order.addBookingStep(type);
+        for (var booking : request.bookings()) {
+            order.addBookingStep(booking.type(), booking.resourceId());
         }
 
         CompositeOrder savedOrder = repository.save(order);
@@ -72,6 +76,7 @@ public class CompositeOrderService {
                 .map(step -> new BookingStepResponse(
                         step.getId(),
                         step.getType(),
+                        step.getResourceId(),
                         step.getStatus(),
                         step.getExternalId()))
                 .toList();

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -21,14 +22,16 @@ class CompositeOrderTest {
     @Test
     void shouldAddBookingStep() {
         CompositeOrder order = CompositeOrder.create();
+        UUID resourceId = UUID.randomUUID();
 
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.HOTEL, resourceId);
 
         assertEquals(1, order.getBookingSteps().size());
 
         BookingStep step = order.getBookingSteps().getFirst();
 
         assertEquals(BookingType.HOTEL, step.getType());
+        assertEquals(resourceId, step.getResourceId());
         assertEquals(BookingStatus.PENDING, step.getStatus());
         assertSame(order, step.getCompositeOrder());
     }
@@ -37,9 +40,9 @@ class CompositeOrderTest {
     void shouldAddSeveralBookingSteps() {
         CompositeOrder order = CompositeOrder.create();
 
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
-        order.addBookingStep(BookingType.INSURANCE);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
+        order.addBookingStep(BookingType.INSURANCE, UUID.randomUUID());
 
         assertEquals(3, order.getBookingSteps().size());
     }
@@ -47,8 +50,8 @@ class CompositeOrderTest {
     @Test
     void shouldCompleteOrderWhenAllBookingStepsAreConfirmed() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
         order.startProcessing();
 
         BookingStep firstStep = order.startNextBookingStep().orElseThrow();
@@ -64,7 +67,7 @@ class CompositeOrderTest {
     @Test
     void shouldRejectCompleteWhenBookingStepIsPending() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
         order.startProcessing();
 
         assertThrows(
@@ -76,7 +79,7 @@ class CompositeOrderTest {
     @Test
     void shouldRejectCompleteWhenBookingStepIsProcessing() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
         order.startProcessing();
         order.startNextBookingStep().orElseThrow();
 
@@ -89,7 +92,7 @@ class CompositeOrderTest {
     @Test
     void shouldFailCurrentBookingStepAndOrder() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
         order.startProcessing();
         BookingStep currentStep = order.startNextBookingStep().orElseThrow();
 
@@ -102,8 +105,8 @@ class CompositeOrderTest {
     @Test
     void shouldKeepConfirmedStepsWhenCurrentStepFails() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
         order.startProcessing();
         BookingStep confirmedStep = order.startNextBookingStep().orElseThrow();
         confirmedStep.confirm("flight-123");
@@ -117,8 +120,8 @@ class CompositeOrderTest {
     @Test
     void shouldKeepPendingStepsWhenCurrentStepFails() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
         order.startProcessing();
         order.startNextBookingStep().orElseThrow();
         BookingStep pendingStep = order.getBookingSteps().get(1);
@@ -131,8 +134,8 @@ class CompositeOrderTest {
     @Test
     void shouldNotStartNextStepAfterOrderFailed() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
         order.startProcessing();
         order.startNextBookingStep().orElseThrow();
 
@@ -145,7 +148,7 @@ class CompositeOrderTest {
     @Test
     void shouldRejectStepFailureWhenNoStepIsProcessing() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
         order.startProcessing();
 
         assertThrows(
@@ -158,7 +161,7 @@ class CompositeOrderTest {
     @Test
     void shouldRejectStepFailureWhenOrderIsNotProcessing() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
 
         assertThrows(
                 InvalidStateTransitionException.class,
@@ -170,8 +173,8 @@ class CompositeOrderTest {
     @Test
     void shouldCompensateConfirmedBookingSteps() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
         order.startProcessing();
         BookingStep flightStep = order.startNextBookingStep().orElseThrow();
         flightStep.confirm("flight-123");
@@ -188,7 +191,7 @@ class CompositeOrderTest {
     @Test
     void shouldKeepFailedStepAfterCompensation() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
         order.startProcessing();
         BookingStep failedStep = order.startNextBookingStep().orElseThrow();
         order.failCurrentBookingStep();
@@ -201,8 +204,8 @@ class CompositeOrderTest {
     @Test
     void shouldKeepPendingStepsAfterCompensation() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
         order.startProcessing();
         order.startNextBookingStep().orElseThrow();
         BookingStep pendingStep = order.getBookingSteps().get(1);
@@ -216,8 +219,8 @@ class CompositeOrderTest {
     @Test
     void shouldCancelOrderAfterCompensation() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
         order.startProcessing();
         BookingStep confirmedStep = order.startNextBookingStep().orElseThrow();
         confirmedStep.confirm("flight-123");
@@ -256,7 +259,7 @@ class CompositeOrderTest {
     @Test
     void shouldCompleteCompensationWhenNoConfirmedSteps() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
         order.startProcessing();
         BookingStep failedStep = order.startNextBookingStep().orElseThrow();
         order.failCurrentBookingStep();
@@ -270,7 +273,7 @@ class CompositeOrderTest {
     @Test
     void shouldRejectCompensationWhenOrderIsNotFailed() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
 
         assertThrows(
                 InvalidStateTransitionException.class,
@@ -282,7 +285,7 @@ class CompositeOrderTest {
     @Test
     void shouldCancelProcessingOrder() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
         order.startProcessing();
 
         order.cancelManually();
@@ -293,7 +296,7 @@ class CompositeOrderTest {
     @Test
     void shouldCancelCompletedOrder() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
         order.startProcessing();
         BookingStep step = order.startNextBookingStep().orElseThrow();
         step.confirm("flight-123");
@@ -307,8 +310,8 @@ class CompositeOrderTest {
     @Test
     void shouldCancelConfirmedSteps() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
         order.startProcessing();
         BookingStep flightStep = order.startNextBookingStep().orElseThrow();
         flightStep.confirm("flight-123");
@@ -347,8 +350,8 @@ class CompositeOrderTest {
     @Test
     void shouldKeepPendingStepsWhenOrderCancelled() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
         order.startProcessing();
         BookingStep confirmedStep = order.startNextBookingStep().orElseThrow();
         confirmedStep.confirm("flight-123");
@@ -363,7 +366,7 @@ class CompositeOrderTest {
     @Test
     void shouldKeepProcessingStepWhenOrderCancelled() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
         order.startProcessing();
         BookingStep processingStep = order.startNextBookingStep().orElseThrow();
 
@@ -447,7 +450,7 @@ class CompositeOrderTest {
                 CompositeOrder order,
                 BookingType type,
                 List<BookingType> compensationOrder) {
-            super(order, type);
+            super(order, type, UUID.randomUUID());
             this.compensationOrder = compensationOrder;
         }
 

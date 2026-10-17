@@ -99,11 +99,15 @@ Content-Type: application/json
 
 ```json
 {
-  "bookingTypes": [
-    "FLIGHT",
-    "HOTEL",
-    "INSURANCE",
-    "TRANSFER"
+  "bookings": [
+    {
+      "type": "FLIGHT",
+      "resourceId": "10000000-0000-0000-0000-000000000001"
+    },
+    {
+      "type": "HOTEL",
+      "resourceId": "20000000-0000-0000-0000-000000000002"
+    }
   ]
 }
 ```

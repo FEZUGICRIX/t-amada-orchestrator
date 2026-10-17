@@ -18,11 +18,23 @@ export const options = {
 
 export default function () {
     const payload = JSON.stringify({
-        bookingTypes: [
-            'FLIGHT',
-            'HOTEL',
-            'INSURANCE',
-            'TRANSFER',
+        bookings: [
+            {
+                type: 'FLIGHT',
+                resourceId: '10000000-0000-0000-0000-000000000001',
+            },
+            {
+                type: 'HOTEL',
+                resourceId: '20000000-0000-0000-0000-000000000002',
+            },
+            {
+                type: 'INSURANCE',
+                resourceId: '30000000-0000-0000-0000-000000000003',
+            },
+            {
+                type: 'TRANSFER',
+                resourceId: '40000000-0000-0000-0000-000000000004',
+            },
         ],
     });
 

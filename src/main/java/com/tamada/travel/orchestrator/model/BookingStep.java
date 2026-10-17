@@ -34,6 +34,9 @@ public class BookingStep {
     @Column(nullable = false)
     private BookingType type;
 
+    @Column(name = "resource_id", nullable = false, updatable = false)
+    private UUID resourceId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private BookingStatus status;
@@ -48,9 +51,14 @@ public class BookingStep {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    public BookingStep(CompositeOrder compositeOrder, BookingType type) {
+    public BookingStep(
+            CompositeOrder compositeOrder,
+            BookingType type,
+            UUID resourceId
+    ) {
         this.compositeOrder = compositeOrder;
         this.type = type;
+        this.resourceId = resourceId;
         this.status = BookingStatus.PENDING;
     }
 

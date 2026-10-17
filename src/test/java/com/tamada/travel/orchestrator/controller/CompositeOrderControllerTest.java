@@ -1,8 +1,11 @@
 package com.tamada.travel.orchestrator.controller;
 
+import com.tamada.travel.orchestrator.dto.BookingStepResponse;
 import com.tamada.travel.orchestrator.dto.OrderResponse;
 import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
 import com.tamada.travel.orchestrator.exception.OrderNotFoundException;
+import com.tamada.travel.orchestrator.model.BookingStatus;
+import com.tamada.travel.orchestrator.model.BookingType;
 import com.tamada.travel.orchestrator.model.OrderStatus;
 import com.tamada.travel.orchestrator.service.CompositeOrderService;
 import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
@@ -35,13 +38,20 @@ class CompositeOrderControllerTest {
     @Test
     void shouldCreateOrder() throws Exception {
         UUID id = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+        UUID resourceId = UUID.randomUUID();
 
         OrderResponse response = new OrderResponse(
                 id,
                 OrderStatus.NEW,
                 Instant.parse("2026-10-03T10:00:00Z"),
                 Instant.parse("2026-10-03T10:00:00Z"),
-                List.of());
+                List.of(new BookingStepResponse(
+                        stepId,
+                        BookingType.FLIGHT,
+                        resourceId,
+                        BookingStatus.PENDING,
+                        null)));
 
         when(service.createOrder(any()))
                 .thenReturn(response);
@@ -51,46 +61,92 @@ class CompositeOrderControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "bookingTypes": [
-                                    "FLIGHT",
-                                    "HOTEL"
+                                  "bookings": [
+                                    {
+                                      "type": "FLIGHT",
+                                      "resourceId": "%s"
+                                    }
                                   ]
                                 }
-                                """))
+                                """.formatted(resourceId)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(id.toString()))
-                .andExpect(jsonPath("$.status").value("NEW"));
+                .andExpect(jsonPath("$.status").value("NEW"))
+                .andExpect(jsonPath("$.bookingSteps[0].resourceId")
+                        .value(resourceId.toString()));
     }
 
     @Test
-    void shouldRejectEmptyBookingTypes() throws Exception {
+    void shouldRejectEmptyBookings() throws Exception {
         mockMvc.perform(
                 post("/api/v1/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "bookingTypes": []
+                                  "bookings": []
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.error").value("Bad Request"))
                 .andExpect(
-                        jsonPath("$.validationErrors.bookingTypes").exists());
+                        jsonPath("$.validationErrors.bookings").exists());
     }
 
     @Test
-    void shouldRejectNullBookingTypes() throws Exception {
+    void shouldRejectNullBookings() throws Exception {
         mockMvc.perform(
                 post("/api/v1/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "bookingTypes": null
+                                  "bookings": null
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void shouldRejectNullResourceId() throws Exception {
+        mockMvc.perform(
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookings": [
+                                    {
+                                      "type": "FLIGHT",
+                                      "resourceId": null
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath(
+                        "$['validationErrors']['bookings[0].resourceId']").exists());
+    }
+
+    @Test
+    void shouldRejectNullBookingType() throws Exception {
+        mockMvc.perform(
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookings": [
+                                    {
+                                      "type": null,
+                                      "resourceId": "00000000-0000-0000-0000-000000000001"
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath(
+                        "$['validationErrors']['bookings[0].type']").exists());
     }
 
     @Test
@@ -100,8 +156,11 @@ class CompositeOrderControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "bookingTypes": [
-                                    "PLANE"
+                                  "bookings": [
+                                    {
+                                      "type": "PLANE",
+                                      "resourceId": "00000000-0000-0000-0000-000000000001"
+                                    }
                                   ]
                                 }
                                 """))
@@ -122,9 +181,15 @@ class CompositeOrderControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "bookingTypes": [
-                                    "FLIGHT",
-                                    "FLIGHT"
+                                  "bookings": [
+                                    {
+                                      "type": "FLIGHT",
+                                      "resourceId": "00000000-0000-0000-0000-000000000001"
+                                    },
+                                    {
+                                      "type": "FLIGHT",
+                                      "resourceId": "00000000-0000-0000-0000-000000000002"
+                                    }
                                   ]
                                 }
                                 """))

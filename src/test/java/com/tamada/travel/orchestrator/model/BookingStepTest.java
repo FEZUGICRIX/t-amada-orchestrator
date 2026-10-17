@@ -4,6 +4,8 @@ import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
 import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import org.junit.jupiter.api.Test;
 
+import java.util.UUID;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class BookingStepTest {
@@ -12,9 +14,12 @@ class BookingStepTest {
     void shouldCreateBookingStepWithPendingStatus() {
         CompositeOrder order = CompositeOrder.create();
 
-        BookingStep step = new BookingStep(order, BookingType.FLIGHT);
+        UUID resourceId = UUID.randomUUID();
+
+        BookingStep step = new BookingStep(order, BookingType.FLIGHT, resourceId);
 
         assertEquals(BookingType.FLIGHT, step.getType());
+        assertEquals(resourceId, step.getResourceId());
         assertEquals(BookingStatus.PENDING, step.getStatus());
         assertSame(order, step.getCompositeOrder());
     }
@@ -113,15 +118,16 @@ class BookingStepTest {
     private BookingStep createStep() {
         return new BookingStep(
                 CompositeOrder.create(),
-                BookingType.FLIGHT);
+                BookingType.FLIGHT,
+                UUID.randomUUID());
     }
 
     @Test
     void shouldStartFirstPendingBookingStep() {
         CompositeOrder order = CompositeOrder.create();
 
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
 
         order.startProcessing();
 
@@ -139,8 +145,8 @@ class BookingStepTest {
     void shouldNotStartNextBookingStepWhileAnotherIsProcessing() {
         CompositeOrder order = CompositeOrder.create();
 
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
 
         order.startProcessing();
 
@@ -157,8 +163,8 @@ class BookingStepTest {
     void shouldStartNextPendingBookingStep() {
         CompositeOrder order = CompositeOrder.create();
 
-        order.addBookingStep(BookingType.FLIGHT);
-        order.addBookingStep(BookingType.HOTEL);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
 
         order.startProcessing();
 
@@ -175,7 +181,7 @@ class BookingStepTest {
     void shouldReturnEmptyWhenNoPendingSteps() {
         CompositeOrder order = CompositeOrder.create();
 
-        order.addBookingStep(BookingType.FLIGHT);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
 
         order.startProcessing();
 

@@ -50,8 +50,8 @@ public class CompositeOrder {
         return order;
     }
 
-    public void addBookingStep(BookingType type) {
-        BookingStep bookingStep = new BookingStep(this, type);
+    public void addBookingStep(BookingType type, UUID resourceId) {
+        BookingStep bookingStep = new BookingStep(this, type, resourceId);
         bookingSteps.add(bookingStep);
     }
 

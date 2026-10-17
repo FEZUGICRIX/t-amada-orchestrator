@@ -1,5 +1,6 @@
 package com.tamada.travel.orchestrator.service;
 
+import com.tamada.travel.orchestrator.dto.CreateBookingStepRequest;
 import com.tamada.travel.orchestrator.dto.CreateOrderRequest;
 import com.tamada.travel.orchestrator.dto.OrderResponse;
 import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
@@ -33,10 +34,14 @@ class CompositeOrderServiceTest {
 
     @Test
     void shouldCreateOrder() {
+        UUID flightResourceId = UUID.randomUUID();
+        UUID hotelResourceId = UUID.randomUUID();
         CreateOrderRequest request = new CreateOrderRequest(
                 List.of(
-                        BookingType.FLIGHT,
-                        BookingType.HOTEL));
+                        new CreateBookingStepRequest(
+                                BookingType.FLIGHT, flightResourceId),
+                        new CreateBookingStepRequest(
+                                BookingType.HOTEL, hotelResourceId)));
 
         when(repository.save(any(CompositeOrder.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -49,10 +54,16 @@ class CompositeOrderServiceTest {
         assertEquals(
                 BookingType.FLIGHT,
                 response.bookingSteps().get(0).type());
+        assertEquals(
+                flightResourceId,
+                response.bookingSteps().get(0).resourceId());
 
         assertEquals(
                 BookingType.HOTEL,
                 response.bookingSteps().get(1).type());
+        assertEquals(
+                hotelResourceId,
+                response.bookingSteps().get(1).resourceId());
 
         verify(repository).save(any(CompositeOrder.class));
     }
@@ -61,8 +72,10 @@ class CompositeOrderServiceTest {
     void shouldRejectDuplicateBookingTypes() {
         CreateOrderRequest request = new CreateOrderRequest(
                 List.of(
-                        BookingType.FLIGHT,
-                        BookingType.FLIGHT));
+                        new CreateBookingStepRequest(
+                                BookingType.FLIGHT, UUID.randomUUID()),
+                        new CreateBookingStepRequest(
+                                BookingType.FLIGHT, UUID.randomUUID())));
 
         assertThrows(
                 InvalidBookingDataException.class,

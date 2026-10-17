@@ -4,6 +4,10 @@
 
 @baseUrl = http://localhost:8080
 @orderId = 01a10131-40db-780d-8f1c-9a4b0789cfd3
+@flightResourceId = 10000000-0000-0000-0000-000000000001
+@hotelResourceId = 20000000-0000-0000-0000-000000000002
+@insuranceResourceId = 30000000-0000-0000-0000-000000000003
+@transferResourceId = 40000000-0000-0000-0000-000000000004
 
 
 ### 1. Создать заказ с двумя шагами
@@ -11,9 +15,15 @@ POST {{baseUrl}}/api/v1/orders
 Content-Type: application/json
 
 {
-  "bookingTypes": [
-    "FLIGHT",
-    "HOTEL"
+  "bookings": [
+    {
+      "type": "FLIGHT",
+      "resourceId": "{{flightResourceId}}"
+    },
+    {
+      "type": "HOTEL",
+      "resourceId": "{{hotelResourceId}}"
+    }
   ]
 }
 
@@ -23,11 +33,23 @@ POST {{baseUrl}}/api/v1/orders
 Content-Type: application/json
 
 {
-  "bookingTypes": [
-    "FLIGHT",
-    "HOTEL",
-    "INSURANCE",
-    "TRANSFER"
+  "bookings": [
+    {
+      "type": "FLIGHT",
+      "resourceId": "{{flightResourceId}}"
+    },
+    {
+      "type": "HOTEL",
+      "resourceId": "{{hotelResourceId}}"
+    },
+    {
+      "type": "INSURANCE",
+      "resourceId": "{{insuranceResourceId}}"
+    },
+    {
+      "type": "TRANSFER",
+      "resourceId": "{{transferResourceId}}"
+    }
   ]
 }
 
@@ -40,100 +62,146 @@ GET {{baseUrl}}/api/v1/orders/{{orderId}}
 ### VALIDATION TESTS
 ### =========================
 
-### 4. Пустой список bookingTypes
+### 4. Пустой список bookings
 POST {{baseUrl}}/api/v1/orders
 Content-Type: application/json
 
 {
-  "bookingTypes": []
+  "bookings": []
 }
 
 
-### 5. bookingTypes = null
+### 5. bookings = null
 POST {{baseUrl}}/api/v1/orders
 Content-Type: application/json
 
 {
-  "bookingTypes": null
+  "bookings": null
 }
 
 
-### 6. Null внутри списка
+### 6. resourceId = null
 POST {{baseUrl}}/api/v1/orders
 Content-Type: application/json
 
 {
-  "bookingTypes": [
-    "FLIGHT",
-    null
+  "bookings": [
+    {
+      "type": "FLIGHT",
+      "resourceId": null
+    }
   ]
 }
 
 
-### 7. Дублирующийся тип бронирования
+### 7. type = null
 POST {{baseUrl}}/api/v1/orders
 Content-Type: application/json
 
 {
-  "bookingTypes": [
-    "FLIGHT",
-    "FLIGHT"
+  "bookings": [
+    {
+      "type": null,
+      "resourceId": "{{flightResourceId}}"
+    }
   ]
 }
 
 
-### 8. Слишком много шагов
+### 8. Дублирующийся тип бронирования
 POST {{baseUrl}}/api/v1/orders
 Content-Type: application/json
 
 {
-  "bookingTypes": [
-    "FLIGHT",
-    "HOTEL",
-    "INSURANCE",
-    "TRANSFER",
-    "FLIGHT"
+  "bookings": [
+    {
+      "type": "FLIGHT",
+      "resourceId": "{{flightResourceId}}"
+    },
+    {
+      "type": "FLIGHT",
+      "resourceId": "50000000-0000-0000-0000-000000000005"
+    }
   ]
 }
 
 
-### 9. Некорректный BookingType
+### 9. Слишком много шагов
 POST {{baseUrl}}/api/v1/orders
 Content-Type: application/json
 
 {
-  "bookingTypes": [
-    "PLANE"
+  "bookings": [
+    {
+      "type": "FLIGHT",
+      "resourceId": "{{flightResourceId}}"
+    },
+    {
+      "type": "HOTEL",
+      "resourceId": "{{hotelResourceId}}"
+    },
+    {
+      "type": "INSURANCE",
+      "resourceId": "{{insuranceResourceId}}"
+    },
+    {
+      "type": "TRANSFER",
+      "resourceId": "{{transferResourceId}}"
+    },
+    {
+      "type": "FLIGHT",
+      "resourceId": "50000000-0000-0000-0000-000000000005"
+    }
   ]
 }
 
 
-### 10. Пустое тело
-POST {{baseUrl}}/api/v1/orders
-Content-Type: application/json
-
-
-### 11. Некорректный JSON
+### 10. Некорректный BookingType
 POST {{baseUrl}}/api/v1/orders
 Content-Type: application/json
 
 {
-  "bookingTypes": [
-    "FLIGHT",
-    "HOTEL"
+  "bookings": [
+    {
+      "type": "PLANE",
+      "resourceId": "{{flightResourceId}}"
+    }
+  ]
+}
 
+
+### 11. Пустое тело
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+
+### 12. Некорректный JSON
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookings": [
+    {
+      "type": "FLIGHT",
+      "resourceId": "{{flightResourceId}}"
+    }
 
 
 ### =========================
 ### NOT FOUND / PATH TESTS
 ### =========================
 
-### 12. Несуществующий заказ
+### 13. Несуществующий заказ
 GET {{baseUrl}}/api/v1/orders/00000000-0000-0000-0000-000000000000
 
 
-### 13. Некорректный UUID
+### 14. Некорректный UUID
 GET {{baseUrl}}/api/v1/orders/not-a-uuid
 
-### Запустить обработку заказа
+
+### 15. Запустить обработку заказа
 POST {{baseUrl}}/api/v1/orders/{{orderId}}/start
+
+
+### 16. Отменить заказ
+POST {{baseUrl}}/api/v1/orders/{{orderId}}/cancel

@@ -56,13 +56,8 @@ public class CompositeOrderService {
         return toResponse(order);
     }
 
-    @Transactional
     public OrderResponse cancelOrder(UUID id) {
-        CompositeOrder order = repository.findById(id)
-                .orElseThrow(() -> new OrderNotFoundException(id));
-
-        order.cancelManually();
-
+        CompositeOrder order = orchestrationService.cancel(id);
         return toResponse(order);
     }
 

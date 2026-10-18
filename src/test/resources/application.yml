@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:orchestrator;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+
+services:
+  flight:
+    base-url: http://localhost:3001
+  hotel:
+    base-url: http://localhost:3002
+  insurance:
+    base-url: http://localhost:3003
+  transfer:
+    base-url: http://localhost:3004

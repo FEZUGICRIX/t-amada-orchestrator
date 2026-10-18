@@ -134,26 +134,27 @@ class CompositeOrderServiceTest {
         UUID id = UUID.randomUUID();
         CompositeOrder order = CompositeOrder.create();
         order.startProcessing();
+        order.cancelManually();
 
-        when(repository.findById(id))
-                .thenReturn(Optional.of(order));
+        when(orchestrationService.cancel(id))
+                .thenReturn(order);
 
         OrderResponse response = service.cancelOrder(id);
 
         assertEquals(OrderStatus.CANCELLED, response.status());
-        verify(repository).findById(id);
+        verify(orchestrationService).cancel(id);
     }
 
     @Test
     void shouldThrowWhenCancellingMissingOrder() {
         UUID id = UUID.randomUUID();
 
-        when(repository.findById(id))
-                .thenReturn(Optional.empty());
+        when(orchestrationService.cancel(id))
+                .thenThrow(new OrderNotFoundException(id));
 
         assertThrows(
                 OrderNotFoundException.class,
                 () -> service.cancelOrder(id));
-        verify(repository).findById(id);
+        verify(orchestrationService).cancel(id);
     }
 }

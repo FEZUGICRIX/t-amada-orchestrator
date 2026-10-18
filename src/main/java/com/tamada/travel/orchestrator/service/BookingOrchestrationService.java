@@ -54,6 +54,10 @@ public class BookingOrchestrationService {
         }
     }
 
+    public CompositeOrder cancel(UUID orderId) {
+        return cancelConfirmedSteps(orderId, true);
+    }
+
     private Optional<BookingStepCommand> startNextStep(UUID orderId) {
         return findOrder(orderId)
                 .startNextBookingStep()
@@ -98,7 +102,7 @@ public class BookingOrchestrationService {
     private void handleBookingFailure(UUID orderId, RuntimeException bookingFailure) {
         failCurrentStep(orderId);
         try {
-            compensateConfirmedSteps(orderId);
+            cancelConfirmedSteps(orderId, false);
         } catch (RuntimeException compensationFailure) {
             compensationFailure.addSuppressed(bookingFailure);
             throw compensationFailure;
@@ -112,25 +116,35 @@ public class BookingOrchestrationService {
         });
     }
 
-    private void compensateConfirmedSteps(UUID orderId) {
+    private CompositeOrder cancelConfirmedSteps(
+            UUID orderId,
+            boolean cancelOrderWithoutConfirmedSteps
+    ) {
         List<CancellationCommand> commands = inTransaction(
-                () -> startCompensation(orderId)
+                () -> startCancellation(
+                        orderId,
+                        cancelOrderWithoutConfirmedSteps
+                )
         );
-        if (commands.isEmpty()) {
-            return;
+        if (commands.isEmpty() && !cancelOrderWithoutConfirmedSteps) {
+            return findOrder(orderId);
         }
 
         for (CancellationCommand command : commands) {
             cancelStep(orderId, command);
         }
 
-        inTransaction(() -> {
-            findOrder(orderId).cancel();
-            return true;
+        return inTransaction(() -> {
+            CompositeOrder order = findOrder(orderId);
+            order.cancel();
+            return order;
         });
     }
 
-    private List<CancellationCommand> startCompensation(UUID orderId) {
+    private List<CancellationCommand> startCancellation(
+            UUID orderId,
+            boolean cancelOrderWithoutConfirmedSteps
+    ) {
         CompositeOrder order = findOrder(orderId);
         List<CancellationCommand> commands = order.getBookingSteps()
                 .reversed()
@@ -139,7 +153,7 @@ public class BookingOrchestrationService {
                 .map(this::toCancellationCommand)
                 .toList();
 
-        if (!commands.isEmpty()) {
+        if (!commands.isEmpty() || cancelOrderWithoutConfirmedSteps) {
             order.startCancelling();
         }
         return commands;

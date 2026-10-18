@@ -1,62 +1,63 @@
 # T-Amada Orchestrator
 
-Backend-сервис для работы с составными заказами путешествий.
+Spring Boot-сервис для управления составным заказом путешествия. Заказ может включать бронирование:
 
-Составной заказ может включать несколько шагов бронирования:
+- авиабилета;
+- отеля;
+- страховки;
+- трансфера.
 
-- авиабилеты
-- отель
-- страховка
-- трансфер
+Orchestrator последовательно вызывает внешние сервисы, сохраняет идентификаторы броней и компенсирует уже выполненные шаги при частичном отказе.
 
 ## Стек
 
 - Java 21
 - Spring Boot 4.1.1
 - Spring Web MVC
-- Spring Data JPA
-- Hibernate
-- PostgreSQL
+- Spring Data JPA / Hibernate
+- PostgreSQL 17
 - Flyway
 - Maven
 - Docker Compose
-- JUnit
-- Mockito
+- JUnit 5, Mockito, MockMvc, MockRestServiceServer
 
-## Структура проекта
+## Архитектура
 
 ```text
-src/main/java/com/tamada/travel/orchestrator
-├── config
-├── controller
-├── dto
-├── exception
-├── model
-├── repository
-├── service
-└── OrchestratorApplication.java
+CompositeOrderController
+        |
+        v
+CompositeOrderService
+        |
+        v
+BookingOrchestrationService
+        |
+        +--> CompositeOrderRepository
+        |
+        +--> BookingClientRegistry
+                  |
+                  +--> FLIGHT RestBookingClient
+                  +--> HOTEL RestBookingClient
+                  +--> INSURANCE RestBookingClient
+                  +--> TRANSFER RestBookingClient
 ```
 
-## Модель
+`BookingClientRegistry` выбирает HTTP-клиент по `BookingType`. Orchestration service не содержит `switch` по URL внешних сервисов.
+
+## Доменная модель
 
 ### CompositeOrder
 
-Составной заказ.
-
-Статусы:
+Статусы заказа:
 
 ```text
-NEW
-PROCESSING
-COMPLETED
-FAILED
-CANCELLING
-CANCELLED
+NEW -> PROCESSING -> COMPLETED
+                  -> FAILED -> CANCELLING -> CANCELLED
+
+PROCESSING/COMPLETED -> CANCELLING -> CANCELLED
 ```
 
 ### BookingStep
-
-Отдельный шаг бронирования.
 
 Типы:
 
@@ -70,23 +71,69 @@ TRANSFER
 Статусы:
 
 ```text
-PENDING
-PROCESSING
-CONFIRMED
-FAILED
-CANCELLING
-CANCELLED
+PENDING -> PROCESSING -> CONFIRMED
+                      -> FAILED
+
+CONFIRMED -> CANCELLING -> CANCELLED
 ```
 
-Связь:
+Шаг содержит:
+
+- `resourceId` — идентификатор бронируемого ресурса;
+- `externalId` — ID созданной брони во внешнем сервисе.
+
+## Saga flow
+
+### Успешное бронирование
+
+Шаги выполняются последовательно в порядке, указанном при создании заказа:
 
 ```text
-CompositeOrder 1 ---- N BookingStep
+FLIGHT -> HOTEL -> INSURANCE -> TRANSFER
 ```
 
-Для идентификаторов используется UUIDv7.
+После успешного `/book` шаг получает `CONFIRMED`, а внешний booking ID сохраняется в `externalId`. Когда подтверждены все шаги, заказ получает `COMPLETED`.
+
+### Частичный отказ
+
+Если `/book` завершился ошибкой:
+
+1. текущий шаг получает `FAILED`;
+2. заказ получает `FAILED`;
+3. следующие `PENDING` шаги не запускаются;
+4. ранее подтверждённые шаги отменяются через `/cancel` в обратном порядке;
+5. после успешной компенсации заказ получает `CANCELLED`.
+
+Пример:
+
+```text
+FLIGHT      CONFIRMED
+HOTEL       CONFIRMED
+INSURANCE   FAILED
+TRANSFER    PENDING
+
+Компенсация: HOTEL -> FLIGHT
+```
+
+Если внешний `/cancel` завершился ошибкой, текущий шаг и заказ остаются в `CANCELLING`. Дальнейшая компенсация останавливается.
+
+### Ручная отмена
+
+```http
+POST /api/v1/orders/{id}/cancel
+```
+
+Для заказа в `PROCESSING` или `COMPLETED` отменяются только шаги `CONFIRMED`. Шаги `PENDING`, `FAILED` и `CANCELLED` не отправляются на внешний `/cancel`.
+
+Автоматическая компенсация и ручная отмена используют один общий cancellation flow.
 
 ## API
+
+Base URL:
+
+```text
+http://localhost:8080
+```
 
 ### Создать заказ
 
@@ -94,8 +141,6 @@ CompositeOrder 1 ---- N BookingStep
 POST /api/v1/orders
 Content-Type: application/json
 ```
-
-Пример:
 
 ```json
 {
@@ -112,27 +157,97 @@ Content-Type: application/json
 }
 ```
 
+Ограничения:
+
+- от одного до четырёх шагов;
+- `type` и `resourceId` обязательны;
+- типы бронирования не должны повторяться.
+
 ### Получить заказ
 
 ```http
 GET /api/v1/orders/{id}
 ```
 
-## Валидация и ошибки
+### Запустить бронирование
 
-Реализована проверка входных данных:
+```http
+POST /api/v1/orders/{id}/start
+```
 
-- пустого списка шагов
-- `null` значений
-- повторяющихся типов бронирования
-- некорректных значений enum
-- некорректного UUID
+Запуск синхронный: endpoint выполняет последовательные `/book` и при необходимости компенсацию.
 
-Ошибки API возвращаются в едином формате:
+### Отменить заказ
+
+```http
+POST /api/v1/orders/{id}/cancel
+```
+
+После успешной внешней отмены endpoint возвращает актуальный `OrderResponse` со статусом `CANCELLED`.
+
+## Внешние сервисы
+
+| Тип       | Base URL                | Book                     | Cancel                     |
+| --------- | ----------------------- | ------------------------ | -------------------------- |
+| FLIGHT    | `http://localhost:3001` | `/api/v1/flight/book`    | `/api/v1/flight/cancel`    |
+| HOTEL     | `http://localhost:3002` | `/api/v1/hotel/book`     | `/api/v1/hotel/cancel`     |
+| INSURANCE | `http://localhost:3003` | `/api/v1/insurance/book` | `/api/v1/insurance/cancel` |
+| TRANSFER  | `http://localhost:3004` | `/api/v1/transfer/book`  | `/api/v1/transfer/cancel`  |
+
+### Book request
 
 ```json
 {
-  "timestamp": "2026-10-03T10:00:00Z",
+  "resourceId": "10000000-0000-0000-0000-000000000001",
+  "bookingReference": "0199f000-0000-7000-8000-000000000002"
+}
+```
+
+`bookingReference` равен внутреннему ID `BookingStep`.
+
+### Cancel request
+
+```json
+{
+  "bookingId": "30000000-0000-0000-0000-000000000003"
+}
+```
+
+`bookingId` берётся из `BookingStep.externalId`. После ответа проверяются booking ID и `status == CANCELLED`.
+
+## Обработка ошибок
+
+Внешние сервисы возвращают ошибку в формате:
+
+```json
+{
+  "success": false,
+  "statusCode": 409,
+  "message": "Resource is unavailable",
+  "error": "Conflict",
+  "timestamp": "2026-10-18T10:00:00Z",
+  "path": "/api/v1/hotel/book"
+}
+```
+
+Для validation error `message` также может быть массивом строк.
+
+Классификация:
+
+| HTTP status | Тип                    | Retryable    |
+| ----------- | ---------------------- | ------------ |
+| 400         | `VALIDATION_ERROR`     | нет          |
+| 404         | `NOT_FOUND`            | нет          |
+| 409         | `RESOURCE_UNAVAILABLE` | нет          |
+| 500         | `SYSTEM_FAILURE`       | потенциально |
+
+Retry в текущей версии не выполняется.
+
+Ошибки API Orchestrator возвращаются в едином формате:
+
+```json
+{
+  "timestamp": "2026-10-18T10:00:00Z",
   "status": 404,
   "error": "Not Found",
   "message": "Order not found: ...",
@@ -141,71 +256,85 @@ GET /api/v1/orders/{id}
 }
 ```
 
-## База данных
+## Запуск
 
-PostgreSQL запускается через Docker Compose.
+### Требования
+
+- JDK 21
+- Docker с Docker Compose
+- внешние сервисы на портах `3001–3004` для реального бронирования
+
+### PostgreSQL
 
 ```bash
 docker compose up -d
 ```
 
-Подключение:
+Параметры подключения:
 
 ```text
 Host: localhost
 Port: 5433
 Database: tamada
 User: tamada
+Password: tamada
 ```
 
-Миграции Flyway находятся в:
-
-```text
-src/main/resources/db/migration
-```
-
-Текущие таблицы:
-
-```text
-composite_orders
-booking_steps
-flyway_schema_history
-```
-
-## Запуск
+### Приложение
 
 ```bash
 ./mvnw spring-boot:run
 ```
 
-Приложение доступно на:
+Приложение запускается на `http://localhost:8080`.
 
-```text
-http://localhost:8080
-```
+Основная конфигурация находится в `src/main/resources/application.yml`.
 
 ## Тесты
-
-Запуск:
 
 ```bash
 ./mvnw test
 ```
 
-Реализованы тесты для:
+Тесты не требуют реальных внешних сервисов или PostgreSQL:
 
-- `BookingStep`
-- `CompositeOrder`
-- `CompositeOrderService`
-- `CompositeOrderController`
-- валидации API
-- обработки ошибок
+- Spring context использует H2;
+- HTTP-вызовы эмулируются через `MockRestServiceServer`;
+- Saga integration tests проверяют цепочку Controller → Service → Orchestrator → RestBookingClient → mock HTTP service.
+
+Покрыты успешное бронирование, частичные отказы, ошибки `409` и `500`, обратная компенсация, ручная отмена и ошибки внешнего `/cancel`.
 
 Текущий результат:
 
 ```text
-Tests run: 30
-Failures: 0
-Errors: 0
-Skipped: 0
+Tests run: 128, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
 ```
+
+## Структура проекта
+
+```text
+src/main/java/com/tamada/travel/orchestrator
+├── client       # внешние HTTP-клиенты и DTO
+├── config       # конфигурация клиентов
+├── controller   # REST API
+├── dto          # API request/response
+├── exception    # исключения и error handler
+├── model        # CompositeOrder и BookingStep
+├── repository   # Spring Data JPA
+└── service      # application и orchestration logic
+```
+
+Flyway migrations находятся в `src/main/resources/db/migration`.
+
+## Ограничения
+
+В текущей версии не реализованы:
+
+- retry;
+- circuit breaker;
+- асинхронная Saga;
+- Kafka;
+- scheduler компенсаций;
+- distributed transactions;
+- отдельный workflow engine.

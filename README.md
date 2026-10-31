@@ -14,6 +14,7 @@ Orchestrator последовательно вызывает внешние се
 - Java 21
 - Spring Boot 4.1.1
 - Spring Web MVC
+- OpenAPI 3 / Swagger UI (springdoc-openapi)
 - Spring Data JPA / Hibernate
 - PostgreSQL 17
 - Flyway
@@ -327,6 +328,12 @@ src/main/java/com/tamada/travel/orchestrator
 
 Flyway migrations находятся в `src/main/resources/db/migration`.
 
+
+## Swagger / OpenAPI
+
+Интерактивная документация API доступна после запуска приложения:
+- **Swagger UI**: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
+- **OpenAPI Schema**: [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
 ## Ограничения
 
 В текущей версии не реализованы:

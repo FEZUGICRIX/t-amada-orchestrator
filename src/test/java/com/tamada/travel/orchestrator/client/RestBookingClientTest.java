@@ -283,6 +283,100 @@ class RestBookingClientTest {
         );
     }
 
+
+    @Test
+    void shouldAcceptHttp201CreatedOnBook() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BookingClient client = hotelClient(builder);
+        UUID resourceId = UUID.randomUUID();
+        UUID bookingReference = UUID.randomUUID();
+        UUID externalBookingId = UUID.randomUUID();
+        Instant createdAt = Instant.parse("2026-10-17T10:00:00Z");
+
+        server.expect(requestTo("http://localhost:3002/api/v1/hotel/book"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.CREATED)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {
+                                  "id": "%s",
+                                  "bookingReference": "%s",
+                                  "status": "CONFIRMED",
+                                  "createdAt": "%s",
+                                  "extraUnknownField": 12345
+                                }
+                                """.formatted(externalBookingId, bookingReference, createdAt)));
+
+        BookingResponse response = client.book(new BookingRequest(resourceId, bookingReference));
+
+        assertEquals(externalBookingId, response.id());
+        assertEquals(bookingReference, response.bookingReference());
+        assertEquals("CONFIRMED", response.status());
+        assertEquals(createdAt, response.createdAt());
+        server.verify();
+    }
+
+    @Test
+    void shouldAcceptHttp201CreatedOnCancel() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BookingClient client = hotelClient(builder);
+        UUID bookingId = UUID.randomUUID();
+        Instant updatedAt = Instant.parse("2026-10-17T11:00:00Z");
+
+        server.expect(requestTo("http://localhost:3002/api/v1/hotel/cancel"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.CREATED)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {
+                                  "id": "%s",
+                                  "status": "CANCELLED",
+                                  "updatedAt": "%s",
+                                  "extraMetadata": "test"
+                                }
+                                """.formatted(bookingId, updatedAt)));
+
+        CancelBookingResponse response = client.cancel(new CancelBookingRequest(bookingId));
+
+        assertEquals(bookingId, response.id());
+        assertEquals("CANCELLED", response.status());
+        assertEquals(updatedAt, response.updatedAt());
+        server.verify();
+    }
+
+    @Test
+    void shouldFallbackToRequestPathWhenErrorPathIsBlank() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BookingClient client = hotelClient(builder);
+        String bookingPath = "/api/v1/hotel/book";
+
+        server.expect(requestTo("http://localhost:3002" + bookingPath))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {
+                                  "success": false,
+                                  "statusCode": 400,
+                                  "message": ["resourceId must be a UUID"],
+                                  "error": "Bad Request",
+                                  "timestamp": "2026-10-17T10:00:00Z",
+                                  "path": ""
+                                }
+                                """));
+
+        ExternalBookingException exception = assertThrows(
+                ExternalBookingException.class,
+                () -> client.book(new BookingRequest(UUID.randomUUID(), UUID.randomUUID()))
+        );
+
+        assertEquals(bookingPath, exception.getPath());
+        assertEquals("resourceId must be a UUID", exception.getMessage());
+        server.verify();
+    }
+
     private ExternalBookingException executeCancelErrorResponse(
             HttpStatus status,
             String message

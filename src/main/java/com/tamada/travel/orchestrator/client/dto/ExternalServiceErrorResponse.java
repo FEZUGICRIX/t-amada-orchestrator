@@ -1,15 +1,17 @@
 package com.tamada.travel.orchestrator.client.dto;
 
-import java.time.Instant;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.util.Collection;
 import java.util.stream.Collectors;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record ExternalServiceErrorResponse(
         boolean success,
         int statusCode,
         Object message,
         String error,
-        Instant timestamp,
+        Object timestamp,
         String path
 ) {
 

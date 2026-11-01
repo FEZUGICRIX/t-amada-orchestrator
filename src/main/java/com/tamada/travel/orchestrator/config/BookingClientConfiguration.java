@@ -7,18 +7,34 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import java.net.URI;
+import java.time.Duration;
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(BookingServicesProperties.class)
 public class BookingClientConfiguration {
 
+    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
+    private static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(10);
+
     @Bean
     @ConditionalOnMissingBean
-    public RestClient.Builder restClientBuilder() {
-        return RestClient.builder();
+    public RestClient.Builder restClientBuilder(BookingServicesProperties properties) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        Duration connectTimeout = properties.connectTimeout() != null
+                ? properties.connectTimeout()
+                : DEFAULT_CONNECT_TIMEOUT;
+        Duration readTimeout = properties.readTimeout() != null
+                ? properties.readTimeout()
+                : DEFAULT_READ_TIMEOUT;
+        requestFactory.setConnectTimeout(connectTimeout);
+        requestFactory.setReadTimeout(readTimeout);
+
+        return RestClient.builder()
+                .requestFactory(requestFactory);
     }
 
     @Bean
@@ -78,8 +94,19 @@ public class BookingClientConfiguration {
         return new RestBookingClient(
                 type,
                 builder.clone(),
-                baseUrl,
+                normalizeBaseUrl(baseUrl),
                 bookingPath,
                 cancellationPath);
+    }
+
+    private static URI normalizeBaseUrl(URI baseUrl) {
+        if (baseUrl == null) {
+            return null;
+        }
+        String str = baseUrl.toString();
+        if (str.endsWith("/")) {
+            return URI.create(str.substring(0, str.length() - 1));
+        }
+        return baseUrl;
     }
 }

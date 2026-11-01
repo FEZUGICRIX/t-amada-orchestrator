@@ -39,6 +39,7 @@ public class CompositeOrder {
     private Instant updatedAt;
 
     @OneToMany(mappedBy = "compositeOrder", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("createdAt ASC, id ASC")
     private List<BookingStep> bookingSteps = new ArrayList<>();
 
     protected CompositeOrder() {
@@ -126,6 +127,11 @@ public class CompositeOrder {
         this.status = OrderStatus.CANCELLED;
     }
 
+    /**
+     * @deprecated Локальная компенсация в памяти. В паттерне Saga Orchestration
+     * компенсация выполняется внешними вызовами через {@code BookingOrchestrationService}.
+     */
+    @Deprecated(since = "task-17")
     public void compensateConfirmedBookings() {
         if (status != OrderStatus.FAILED) {
             throw new InvalidStateTransitionException(
@@ -137,6 +143,11 @@ public class CompositeOrder {
         cancel();
     }
 
+    /**
+     * @deprecated Ручная отмена в памяти. В распределенной саге отмена выполняется
+     * через оркестратор {@code BookingOrchestrationService.cancel()}.
+     */
+    @Deprecated(since = "task-17")
     public void cancelManually() {
         if (status != OrderStatus.PROCESSING && status != OrderStatus.COMPLETED) {
             throw new InvalidStateTransitionException(

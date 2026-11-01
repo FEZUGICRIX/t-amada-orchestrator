@@ -12,7 +12,7 @@ public record CreateBookingStepRequest(
         @NotNull(message = "Booking type must not be null")
         BookingType type,
 
-        @Schema(description = "Идентификатор бронируемого ресурса во внешнем сервисе", example = "10000000-0000-0000-0000-000000000001")
+        @Schema(description = "Идентификатор бронируемого ресурса во внешнем сервисе (UUID v4 из каталога сервиса)", example = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")
         @NotNull(message = "Resource id must not be null")
         UUID resourceId
 ) {

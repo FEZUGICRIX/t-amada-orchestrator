@@ -75,10 +75,15 @@ public class RestBookingClient implements BookingClient {
         String message = errorResponse == null
                 ? exception.getStatusText()
                 : errorResponse.messageText();
-        String path = errorResponse == null ? requestPath : errorResponse.path();
+        String path = (errorResponse != null && errorResponse.path() != null && !errorResponse.path().isBlank())
+                ? errorResponse.path()
+                : requestPath;
 
         if (message == null || message.isBlank()) {
             message = exception.getStatusText();
+        }
+        if (message == null || message.isBlank()) {
+            message = "External service error (" + exception.getStatusCode().value() + ")";
         }
 
         return new ExternalBookingException(

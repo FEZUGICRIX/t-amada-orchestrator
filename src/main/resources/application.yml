@@ -3,9 +3,9 @@ spring:
     name: orchestrator
 
   datasource:
-    url: jdbc:postgresql://localhost:5433/tamada
-    username: tamada
-    password: tamada
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/tamada}
+    username: ${SPRING_DATASOURCE_USERNAME:tamada}
+    password: ${SPRING_DATASOURCE_PASSWORD:tamada}
 
   jpa:
     hibernate:
@@ -18,13 +18,15 @@ spring:
 
 services:
   flight:
-    base-url: http://localhost:3001
+    base-url: ${SERVICES_FLIGHT_BASE_URL:http://localhost:3001}
   hotel:
-    base-url: http://localhost:3002
+    base-url: ${SERVICES_HOTEL_BASE_URL:http://localhost:3002}
   insurance:
-    base-url: http://localhost:3003
+    base-url: ${SERVICES_INSURANCE_BASE_URL:http://localhost:3003}
   transfer:
-    base-url: http://localhost:3004
+    base-url: ${SERVICES_TRANSFER_BASE_URL:http://localhost:3004}
+  connect-timeout: 5s
+  read-timeout: 10s
 
 springdoc:
   swagger-ui:

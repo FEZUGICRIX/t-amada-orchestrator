@@ -14,13 +14,13 @@ public record BookingStepResponse(
         @Schema(description = "Тип бронирования", example = "FLIGHT")
         BookingType type,
 
-        @Schema(description = "Идентификатор ресурса", example = "10000000-0000-0000-0000-000000000001")
+        @Schema(description = "Идентификатор ресурса", example = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")
         UUID resourceId,
 
         @Schema(description = "Статус шага бронирования (PENDING, PROCESSING, CONFIRMED, FAILED, CANCELLING, CANCELLED)", example = "CONFIRMED")
         BookingStatus status,
 
-        @Schema(description = "Идентификатор созданной брони во внешнем сервисе (null до подтверждения)", example = "30000000-0000-0000-0000-000000000003")
+        @Schema(description = "Идентификатор созданной брони во внешнем сервисе (null до подтверждения)", example = "30000000-0000-4000-8000-000000000003")
         String externalId
 ) {
 }

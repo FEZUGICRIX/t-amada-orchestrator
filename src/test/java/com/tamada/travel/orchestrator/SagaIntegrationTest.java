@@ -44,13 +44,15 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import org.springframework.test.web.client.match.MockRestRequestMatchers;
 
 class SagaIntegrationTest {
 
@@ -110,8 +112,7 @@ class SagaIntegrationTest {
 
         mockMvc.perform(post("/api/v1/orders/{id}/start", orderId))
                 .andExpect(status().isOk())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
-                        .jsonPath("$.status").value("COMPLETED"));
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
 
         assertEquals(OrderStatus.COMPLETED, order.getStatus());
         assertEquals(
@@ -145,7 +146,8 @@ class SagaIntegrationTest {
         expectCancelSuccess(flight, flightExternalId);
 
         mockMvc.perform(post("/api/v1/orders/{id}/start", orderId))
-                .andExpect(status().isInternalServerError());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
 
         assertEquals(BookingStatus.CANCELLED, flight.getStatus());
         assertEquals(BookingStatus.FAILED, hotel.getStatus());
@@ -176,7 +178,8 @@ class SagaIntegrationTest {
         expectCancelSuccess(flight, flightExternalId);
 
         mockMvc.perform(post("/api/v1/orders/{id}/start", orderId))
-                .andExpect(status().isInternalServerError());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
 
         assertEquals(
                 List.of(
@@ -204,7 +207,8 @@ class SagaIntegrationTest {
         expectCancelSuccess(flight, flightExternalId);
 
         mockMvc.perform(post("/api/v1/orders/{id}/start", orderId))
-                .andExpect(status().isInternalServerError());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
 
         assertEquals(1, externalCalls.stream()
                 .filter("HOTEL book"::equals)
@@ -235,7 +239,8 @@ class SagaIntegrationTest {
         expectCancelSuccess(flight, flightExternalId);
 
         mockMvc.perform(post("/api/v1/orders/{id}/start", orderId))
-                .andExpect(status().isInternalServerError());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
 
         assertEquals(BookingStatus.FAILED, insurance.getStatus());
         assertEquals(BookingStatus.PENDING, order.getBookingSteps().get(3).getStatus());
@@ -263,8 +268,7 @@ class SagaIntegrationTest {
 
         mockMvc.perform(post("/api/v1/orders/{id}/cancel", orderId))
                 .andExpect(status().isOk())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
-                        .jsonPath("$.status").value("CANCELLED"));
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
 
         assertEquals(
                 List.of("HOTEL cancel", "FLIGHT cancel"),
@@ -287,8 +291,7 @@ class SagaIntegrationTest {
 
         mockMvc.perform(post("/api/v1/orders/{id}/cancel", orderId))
                 .andExpect(status().isOk())
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
-                        .jsonPath("$.status").value("CANCELLED"));
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
 
         assertEquals(List.of("FLIGHT cancel"), externalCalls);
         assertEquals(BookingStatus.CANCELLED, flight.getStatus());
@@ -363,9 +366,9 @@ class SagaIntegrationTest {
         service.server().expect(ExpectedCount.once(), requestTo(service.baseUrl() + path))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(request -> externalCalls.add(step.getType() + " book"))
-                .andExpect(jsonPath("$.resourceId")
+                .andExpect(MockRestRequestMatchers.jsonPath("$.resourceId")
                         .value(step.getResourceId().toString()))
-                .andExpect(jsonPath("$.bookingReference")
+                .andExpect(MockRestRequestMatchers.jsonPath("$.bookingReference")
                         .value(step.getId().toString()))
                 .andRespond(withSuccess(
                         """
@@ -392,7 +395,7 @@ class SagaIntegrationTest {
         service.server().expect(ExpectedCount.once(), requestTo(service.baseUrl() + path))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(request -> externalCalls.add(step.getType() + " cancel"))
-                .andExpect(jsonPath("$.bookingId").value(externalId.toString()))
+                .andExpect(MockRestRequestMatchers.jsonPath("$.bookingId").value(externalId.toString()))
                 .andRespond(withSuccess(
                         """
                                 {

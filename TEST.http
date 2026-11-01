@@ -4,10 +4,15 @@
 
 @baseUrl = http://localhost:8080
 @orderId = 01a10131-40db-780d-8f1c-9a4b0789cfd3
-@flightResourceId = 10000000-0000-0000-0000-000000000001
-@hotelResourceId = 20000000-0000-0000-0000-000000000002
-@insuranceResourceId = 30000000-0000-0000-0000-000000000003
-@transferResourceId = 40000000-0000-0000-0000-000000000004
+# Примечание: реальные UUID v4 ресурсов каталогов можно получить через /search:
+# GET http://localhost:3001/api/v1/flight/search
+# GET http://localhost:3002/api/v1/hotel/search
+# GET http://localhost:3003/api/v1/insurance/search
+# GET http://localhost:3004/api/v1/transfer/search
+@flightResourceId = a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+@hotelResourceId = b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12
+@insuranceResourceId = c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a13
+@transferResourceId = d0eebc99-9c0b-4ef8-bb6d-6bb9bd380a14
 
 
 ### 1. Создать заказ с двумя шагами
@@ -120,7 +125,7 @@ Content-Type: application/json
     },
     {
       "type": "FLIGHT",
-      "resourceId": "50000000-0000-0000-0000-000000000005"
+      "resourceId": "50000000-0000-4000-8000-000000000005"
     }
   ]
 }
@@ -150,7 +155,7 @@ Content-Type: application/json
     },
     {
       "type": "FLIGHT",
-      "resourceId": "50000000-0000-0000-0000-000000000005"
+      "resourceId": "50000000-0000-4000-8000-000000000005"
     }
   ]
 }

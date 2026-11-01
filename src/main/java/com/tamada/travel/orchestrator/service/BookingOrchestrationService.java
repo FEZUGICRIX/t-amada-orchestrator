@@ -50,7 +50,12 @@ public class BookingOrchestrationService {
                 return inTransaction(() -> completeOrder(orderId));
             }
 
-            bookStep(orderId, nextStep.orElseThrow());
+            boolean stepSuccess = bookStep(orderId, nextStep.orElseThrow());
+            if (!stepSuccess) {
+                // Шаг завершился ошибкой, и компенсирующие транзакции успешно выполнены.
+                // Сага перевела заказ в статус CANCELLED и завершила сценарий отката.
+                return findOrder(orderId);
+            }
         }
     }
 
@@ -68,7 +73,7 @@ public class BookingOrchestrationService {
                 ));
     }
 
-    private void bookStep(UUID orderId, BookingStepCommand step) {
+    private boolean bookStep(UUID orderId, BookingStepCommand step) {
         try {
             BookingClient client = clientRegistry.getClient(step.type());
             BookingResponse response = client.book(new BookingRequest(
@@ -76,11 +81,12 @@ public class BookingOrchestrationService {
                     step.bookingReference()
             ));
 
-            validateBookingReference(step, response);
+            validateBookingResponse(step, response);
             inTransaction(() -> {
                 confirmStep(orderId, step.bookingReference(), response.id());
                 return true;
             });
+            return true;
         } catch (ExternalBookingException exception) {
             log.warn(
                     "External booking failed: orderId={}, bookingStepId={}, "
@@ -92,17 +98,25 @@ public class BookingOrchestrationService {
                     exception.getMessage()
             );
             handleBookingFailure(orderId, exception);
-            throw exception;
+            return false;
         } catch (RuntimeException exception) {
+            log.warn(
+                    "Booking step execution failed: orderId={}, bookingStepId={}, "
+                            + "bookingType={}, message={}",
+                    orderId,
+                    step.bookingReference(),
+                    step.type(),
+                    exception.getMessage()
+            );
             handleBookingFailure(orderId, exception);
-            throw exception;
+            return false;
         }
     }
 
     private void handleBookingFailure(UUID orderId, RuntimeException bookingFailure) {
         failCurrentStep(orderId);
         try {
-            cancelConfirmedSteps(orderId, false);
+            cancelConfirmedSteps(orderId, true);
         } catch (RuntimeException compensationFailure) {
             compensationFailure.addSuppressed(bookingFailure);
             throw compensationFailure;
@@ -224,21 +238,32 @@ public class BookingOrchestrationService {
                             + command.externalBookingId()
             );
         }
-        if (!"CANCELLED".equals(response.status())) {
+        if (!"CANCELLED".equalsIgnoreCase(response.status())) {
             throw new IllegalStateException(
                     "Unexpected external cancellation status: " + response.status()
             );
         }
     }
 
-    private void validateBookingReference(
+    private void validateBookingResponse(
             BookingStepCommand step,
             BookingResponse response
     ) {
+        if (response == null) {
+            throw new IllegalStateException("External booking returned no response");
+        }
+        if (response.id() == null) {
+            throw new IllegalStateException("External booking id is missing");
+        }
         if (!step.bookingReference().equals(response.bookingReference())) {
             throw new IllegalStateException(
                     "Booking response reference does not match step "
                             + step.bookingReference()
+            );
+        }
+        if (!"CONFIRMED".equalsIgnoreCase(response.status())) {
+            throw new IllegalStateException(
+                    "Unexpected external booking status: " + response.status()
             );
         }
     }

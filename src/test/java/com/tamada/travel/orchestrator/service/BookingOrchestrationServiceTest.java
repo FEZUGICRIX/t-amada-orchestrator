@@ -163,14 +163,10 @@ class BookingOrchestrationServiceTest {
     void shouldFailCurrentStepWhenBookingClientThrows() {
         CompositeOrder order = createOrder(BookingType.FLIGHT);
         BookingStep step = order.getBookingSteps().getFirst();
-        RuntimeException clientException = stubFailedBooking(step);
+        stubFailedBooking(step);
 
-        RuntimeException thrown = assertThrows(
-                RuntimeException.class,
-                () -> service.orchestrate(orderId)
-        );
+        service.orchestrate(orderId);
 
-        assertSame(clientException, thrown);
         assertEquals(BookingStatus.FAILED, step.getStatus());
     }
 
@@ -180,12 +176,9 @@ class BookingOrchestrationServiceTest {
         BookingStep step = order.getBookingSteps().getFirst();
         stubFailedBooking(step);
 
-        assertThrows(
-                RuntimeException.class,
-                () -> service.orchestrate(orderId)
-        );
+        service.orchestrate(orderId);
 
-        assertEquals(OrderStatus.FAILED, order.getStatus());
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
     }
 
     @Test
@@ -208,7 +201,7 @@ class BookingOrchestrationServiceTest {
                 ExternalBookingErrorType.VALIDATION_ERROR
         );
 
-        assertEquals(OrderStatus.FAILED, order.getStatus());
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
     }
 
     @Test
@@ -231,7 +224,7 @@ class BookingOrchestrationServiceTest {
                 ExternalBookingErrorType.NOT_FOUND
         );
 
-        assertEquals(OrderStatus.FAILED, order.getStatus());
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
     }
 
     @Test
@@ -254,7 +247,7 @@ class BookingOrchestrationServiceTest {
                 ExternalBookingErrorType.RESOURCE_UNAVAILABLE
         );
 
-        assertEquals(OrderStatus.FAILED, order.getStatus());
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
     }
 
     @Test
@@ -267,10 +260,7 @@ class BookingOrchestrationServiceTest {
                 ExternalBookingErrorType.RESOURCE_UNAVAILABLE
         );
 
-        assertThrows(
-                ExternalBookingException.class,
-                () -> service.orchestrate(orderId)
-        );
+        service.orchestrate(orderId);
 
         assertEquals(1, clients.get(BookingType.FLIGHT).requests().size());
         assertEquals(BookingStatus.FAILED, firstStep.getStatus());
@@ -301,7 +291,7 @@ class BookingOrchestrationServiceTest {
                 ExternalBookingErrorType.SYSTEM_FAILURE
         );
 
-        assertEquals(OrderStatus.FAILED, order.getStatus());
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
     }
 
     @Test
@@ -453,10 +443,7 @@ class BookingOrchestrationServiceTest {
         stubSuccessfulBooking(flightStep);
         stubFailedBooking(hotelStep);
 
-        assertThrows(
-                RuntimeException.class,
-                () -> service.orchestrate(orderId)
-        );
+        service.orchestrate(orderId);
 
         assertEquals(BookingStatus.CANCELLED, flightStep.getStatus());
         assertEquals(BookingStatus.FAILED, hotelStep.getStatus());
@@ -485,10 +472,7 @@ class BookingOrchestrationServiceTest {
                 ExternalBookingErrorType.RESOURCE_UNAVAILABLE
         );
 
-        assertThrows(
-                ExternalBookingException.class,
-                () -> service.orchestrate(orderId)
-        );
+        service.orchestrate(orderId);
 
         return new PartialFailure(
                 order,
@@ -548,10 +532,7 @@ class BookingOrchestrationServiceTest {
         CompositeOrder order = createOrder(BookingType.FLIGHT);
         stubExternalFailure(order.getBookingSteps().getFirst(), status, errorType);
 
-        assertThrows(
-                ExternalBookingException.class,
-                () -> service.orchestrate(orderId)
-        );
+        service.orchestrate(orderId);
         return order;
     }
 

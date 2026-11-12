@@ -1,5 +1,6 @@
 package com.tamada.travel.orchestrator.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.tamada.travel.orchestrator.model.OrderStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -22,6 +23,23 @@ public record OrderResponse(
         Instant updatedAt,
 
         @Schema(description = "Список шагов бронирования заказа")
-        List<BookingStepResponse> bookingSteps
+        List<BookingStepResponse> bookingSteps,
+
+        @Schema(description = "Список пассажиров заказа")
+        @JsonProperty("passengers")
+        List<PassengerResponse> passengers,
+
+        @Schema(description = "Контакты заказчика")
+        @JsonProperty("customerContact")
+        CustomerContactResponse customerContact
 ) {
+    public OrderResponse(
+            UUID id,
+            OrderStatus status,
+            Instant createdAt,
+            Instant updatedAt,
+            List<BookingStepResponse> bookingSteps
+    ) {
+        this(id, status, createdAt, updatedAt, bookingSteps, List.of(), null);
+    }
 }

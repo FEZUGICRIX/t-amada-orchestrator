@@ -1,5 +1,6 @@
 package com.tamada.travel.orchestrator.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -13,13 +14,26 @@ import java.util.List;
 public record CreateOrderRequest(
 
         @ArraySchema(
-                schema = @Schema(description = "Шаг бронирования"),
+                schema = @Schema(description = "Шаг бронирования (рейс туда, рейс обратно, отель, страховка, трансфер)"),
                 minItems = 1,
-                maxItems = 4
+                maxItems = 5
         )
         @NotEmpty(message = "Bookings must not be empty")
-        @Size(max = 4, message = "Bookings must contain no more than 4 items")
-        List<@NotNull(message = "Booking must not be null") @Valid CreateBookingStepRequest> bookings
+        @Size(max = 5, message = "Bookings must contain no more than 5 items")
+        List<@NotNull(message = "Booking must not be null") @Valid CreateBookingStepRequest> bookings,
+
+        @ArraySchema(
+                schema = @Schema(description = "Список пассажиров поездки")
+        )
+        @JsonAlias({"passengers"})
+        List<@NotNull(message = "Passenger must not be null") @Valid PassengerRequest> passengers,
+
+        @Schema(description = "Контакты заказчика поездки")
+        @JsonAlias({"customer_contact", "customerContact"})
+        @Valid CustomerContactRequest customerContact
 
 ) {
+    public CreateOrderRequest(List<CreateBookingStepRequest> bookings) {
+        this(bookings, null, null);
+    }
 }

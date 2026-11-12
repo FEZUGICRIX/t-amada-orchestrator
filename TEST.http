@@ -59,6 +59,70 @@ Content-Type: application/json
 }
 
 
+### 2.1. Создать заказ со всеми ресурсами (туда/обратно), пассажирами и контактами заказчика
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookings": [
+    {
+      "type": "FLIGHT",
+      "resourceId": "{{flightResourceId}}"
+    },
+    {
+      "type": "FLIGHT",
+      "resourceId": "50000000-0000-4000-8000-000000000005"
+    },
+    {
+      "type": "HOTEL",
+      "resourceId": "{{hotelResourceId}}"
+    },
+    {
+      "type": "INSURANCE",
+      "resourceId": "{{insuranceResourceId}}"
+    },
+    {
+      "type": "TRANSFER",
+      "resourceId": "{{transferResourceId}}"
+    }
+  ],
+  "passengers": [
+    {
+      "type": "ADULT",
+      "first_name": "Иван",
+      "last_name": "Иванов",
+      "birth_date": "1990-05-15",
+      "citizenship": "Россия",
+      "document_type": "Паспорт РФ",
+      "document_number": "4510 123456"
+    },
+    {
+      "type": "CHILD",
+      "first_name": "Анна",
+      "last_name": "Иванова",
+      "birth_date": "2015-08-20",
+      "citizenship": "Россия",
+      "document_type": "Свидетельство о рождении",
+      "document_number": "II-АБ 654321"
+    },
+    {
+      "type": "INFANT",
+      "first_name": "Михаил",
+      "last_name": "Иванов",
+      "birth_date": "2024-01-10",
+      "citizenship": "Россия",
+      "document_type": "Свидетельство о рождении",
+      "document_number": "III-ВГ 789012"
+    }
+  ],
+  "customer_contact": {
+    "phone": "+79991234567",
+    "email": "ivanov@example.com"
+  }
+}
+
+
+
 ### 3. Получить заказ по ID
 GET {{baseUrl}}/api/v1/orders/{{orderId}}
 
@@ -120,12 +184,12 @@ Content-Type: application/json
 {
   "bookings": [
     {
-      "type": "FLIGHT",
-      "resourceId": "{{flightResourceId}}"
+      "type": "HOTEL",
+      "resourceId": "{{hotelResourceId}}"
     },
     {
-      "type": "FLIGHT",
-      "resourceId": "50000000-0000-4000-8000-000000000005"
+      "type": "HOTEL",
+      "resourceId": "b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a99"
     }
   ]
 }

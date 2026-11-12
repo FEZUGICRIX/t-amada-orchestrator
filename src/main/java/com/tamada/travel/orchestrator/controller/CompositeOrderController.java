@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/orders")
+@RequestMapping({"/api/v1/orders", "/orders"})
 @RequiredArgsConstructor
 @Tag(name = "Composite Orders", description = "Управление составными заказами путешествий (Saga Orchestrator)")
 public class CompositeOrderController {
@@ -30,7 +30,7 @@ public class CompositeOrderController {
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(
             summary = "Создать новый составной заказ",
-            description = "Создает заказ со статусом NEW и списком шагов бронирования (FLIGHT, HOTEL, INSURANCE, TRANSFER). Шаги получают статус PENDING."
+            description = "Создает заказ со статусом NEW, списком шагов бронирования (рейс туда, рейс обратно, отель, страховка, трансфер), списком пассажиров и контактами заказчика. Шаги получают статус PENDING, событие сохраняется в Outbox."
     )
     @ApiResponses({
             @ApiResponse(

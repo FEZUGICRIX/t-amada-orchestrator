@@ -1,12 +1,15 @@
 package com.tamada.travel.orchestrator.controller;
 
 import com.tamada.travel.orchestrator.dto.BookingStepResponse;
+import com.tamada.travel.orchestrator.dto.CustomerContactResponse;
 import com.tamada.travel.orchestrator.dto.OrderResponse;
+import com.tamada.travel.orchestrator.dto.PassengerResponse;
 import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
 import com.tamada.travel.orchestrator.exception.OrderNotFoundException;
 import com.tamada.travel.orchestrator.model.BookingStatus;
 import com.tamada.travel.orchestrator.model.BookingType;
 import com.tamada.travel.orchestrator.model.OrderStatus;
+import com.tamada.travel.orchestrator.model.PassengerType;
 import com.tamada.travel.orchestrator.service.CompositeOrderService;
 import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import org.junit.jupiter.api.Test;
@@ -17,6 +20,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -74,6 +78,111 @@ class CompositeOrderControllerTest {
                 .andExpect(jsonPath("$.status").value("NEW"))
                 .andExpect(jsonPath("$.bookingSteps[0].resourceId")
                         .value(resourceId.toString()));
+    }
+
+    @Test
+    void shouldCreateOrderWithPassengersAndCustomerContact() throws Exception {
+        UUID id = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+        UUID resourceId = UUID.randomUUID();
+        UUID passengerId = UUID.randomUUID();
+        UUID contactId = UUID.randomUUID();
+
+        OrderResponse response = new OrderResponse(
+                id,
+                OrderStatus.NEW,
+                Instant.parse("2026-10-03T10:00:00Z"),
+                Instant.parse("2026-10-03T10:00:00Z"),
+                List.of(new BookingStepResponse(
+                        stepId,
+                        BookingType.FLIGHT,
+                        resourceId,
+                        BookingStatus.PENDING,
+                        null)),
+                List.of(new PassengerResponse(
+                        passengerId,
+                        PassengerType.ADULT,
+                        "Иван",
+                        "Иванов",
+                        LocalDate.of(1990, 5, 15),
+                        "Россия",
+                        "Паспорт РФ",
+                        "4510 123456")),
+                new CustomerContactResponse(contactId, "+79991234567", "ivanov@example.com")
+        );
+
+        when(service.createOrder(any())).thenReturn(response);
+
+        mockMvc.perform(
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookings": [
+                                    {
+                                      "type": "FLIGHT",
+                                      "resourceId": "%s"
+                                    }
+                                  ],
+                                  "passengers": [
+                                    {
+                                      "type": "ADULT",
+                                      "first_name": "Иван",
+                                      "last_name": "Иванов",
+                                      "birth_date": "1990-05-15",
+                                      "citizenship": "Россия",
+                                      "document_type": "Паспорт РФ",
+                                      "document_number": "4510 123456"
+                                    }
+                                  ],
+                                  "customer_contact": {
+                                    "phone": "+79991234567",
+                                    "email": "ivanov@example.com"
+                                  }
+                                }
+                                """.formatted(resourceId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(id.toString()))
+                .andExpect(jsonPath("$.status").value("NEW"))
+                .andExpect(jsonPath("$.passengers[0].firstName").value("Иван"))
+                .andExpect(jsonPath("$.customerContact.phone").value("+79991234567"));
+    }
+
+    @Test
+    void shouldCreateOrderViaShortOrdersPath() throws Exception {
+        UUID id = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+        UUID resourceId = UUID.randomUUID();
+
+        OrderResponse response = new OrderResponse(
+                id,
+                OrderStatus.NEW,
+                Instant.parse("2026-10-03T10:00:00Z"),
+                Instant.parse("2026-10-03T10:00:00Z"),
+                List.of(new BookingStepResponse(
+                        stepId,
+                        BookingType.FLIGHT,
+                        resourceId,
+                        BookingStatus.PENDING,
+                        null)));
+
+        when(service.createOrder(any())).thenReturn(response);
+
+        mockMvc.perform(
+                post("/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookings": [
+                                    {
+                                      "type": "FLIGHT",
+                                      "resourceId": "%s"
+                                    }
+                                  ]
+                                }
+                                """.formatted(resourceId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(id.toString()));
     }
 
     @Test

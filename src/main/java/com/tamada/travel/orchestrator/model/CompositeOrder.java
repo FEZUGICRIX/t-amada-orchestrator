@@ -9,6 +9,7 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -42,6 +43,13 @@ public class CompositeOrder {
     @OrderBy("createdAt ASC, id ASC")
     private List<BookingStep> bookingSteps = new ArrayList<>();
 
+    @OneToMany(mappedBy = "compositeOrder", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("createdAt ASC, id ASC")
+    private List<Passenger> passengers = new ArrayList<>();
+
+    @OneToOne(mappedBy = "compositeOrder", cascade = CascadeType.ALL, orphanRemoval = true)
+    private CustomerContact customerContact;
+
     protected CompositeOrder() {
     }
 
@@ -54,6 +62,36 @@ public class CompositeOrder {
     public void addBookingStep(BookingType type, UUID resourceId) {
         BookingStep bookingStep = new BookingStep(this, type, resourceId);
         bookingSteps.add(bookingStep);
+    }
+
+    public void addPassenger(
+            PassengerType type,
+            String firstName,
+            String lastName,
+            LocalDate birthDate,
+            String citizenship,
+            String documentType,
+            String documentNumber
+    ) {
+        Passenger passenger = new Passenger(
+                this,
+                type,
+                firstName,
+                lastName,
+                birthDate,
+                citizenship,
+                documentType,
+                documentNumber
+        );
+        passengers.add(passenger);
+    }
+
+    public void setCustomerContact(String phone, String email) {
+        if (phone == null && email == null) {
+            this.customerContact = null;
+        } else {
+            this.customerContact = new CustomerContact(this, phone, email);
+        }
     }
 
     public void startProcessing() {

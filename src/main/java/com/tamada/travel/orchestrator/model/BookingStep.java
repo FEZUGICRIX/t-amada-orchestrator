@@ -10,6 +10,8 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -43,6 +45,9 @@ public class BookingStep {
 
     private String externalId;
 
+    @Column(name = "price", nullable = false, precision = 12, scale = 2)
+    private BigDecimal price = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+
     @CreatedDate
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
@@ -56,9 +61,24 @@ public class BookingStep {
             BookingType type,
             UUID resourceId
     ) {
+        this(compositeOrder, type, resourceId, BigDecimal.ZERO);
+    }
+
+    public BookingStep(
+            CompositeOrder compositeOrder,
+            BookingType type,
+            UUID resourceId,
+            BigDecimal price
+    ) {
+        if (price != null && price.compareTo(BigDecimal.ZERO) < 0) {
+            throw new InvalidBookingDataException("Step price must not be negative");
+        }
         this.compositeOrder = compositeOrder;
         this.type = type;
         this.resourceId = resourceId;
+        this.price = price != null
+                ? price.setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         this.status = BookingStatus.PENDING;
     }
 

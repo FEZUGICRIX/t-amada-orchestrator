@@ -17,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -52,11 +53,11 @@ class OutboxServiceTest {
         UUID insuranceId = UUID.randomUUID();
         UUID transferId = UUID.randomUUID();
 
-        order.addBookingStep(BookingType.FLIGHT, flightOutId);
-        order.addBookingStep(BookingType.FLIGHT, flightReturnId);
-        order.addBookingStep(BookingType.HOTEL, hotelId);
-        order.addBookingStep(BookingType.INSURANCE, insuranceId);
-        order.addBookingStep(BookingType.TRANSFER, transferId);
+        order.addBookingStep(BookingType.FLIGHT, flightOutId, new BigDecimal("10000.00"));
+        order.addBookingStep(BookingType.FLIGHT, flightReturnId, new BigDecimal("10000.00"));
+        order.addBookingStep(BookingType.HOTEL, hotelId, new BigDecimal("5000.00"));
+        order.addBookingStep(BookingType.INSURANCE, insuranceId, new BigDecimal("1000.00"));
+        order.addBookingStep(BookingType.TRANSFER, transferId, new BigDecimal("2000.00"));
 
         order.addPassenger(
                 PassengerType.ADULT,
@@ -109,6 +110,9 @@ class OutboxServiceTest {
         );
 
         assertEquals(orderId, payload.orderId());
+        assertEquals(new BigDecimal("28000.00"), payload.basePrice());
+        assertEquals(new BigDecimal("187.60"), payload.serviceFee());
+        assertEquals(new BigDecimal("28187.60"), payload.totalPrice());
         assertNotNull(payload.customerContact());
         assertEquals("+79998887766", payload.customerContact().phone());
         assertEquals("ivanov@example.com", payload.customerContact().email());
@@ -124,6 +128,7 @@ class OutboxServiceTest {
         assertEquals(5, payload.selectedOptions().size());
         assertEquals(BookingType.FLIGHT, payload.selectedOptions().get(0).type());
         assertEquals(flightOutId, payload.selectedOptions().get(0).resourceId());
+        assertEquals(new BigDecimal("10000.00"), payload.selectedOptions().get(0).price());
         assertEquals(BookingType.FLIGHT, payload.selectedOptions().get(1).type());
         assertEquals(flightReturnId, payload.selectedOptions().get(1).resourceId());
         assertEquals(BookingType.HOTEL, payload.selectedOptions().get(2).type());

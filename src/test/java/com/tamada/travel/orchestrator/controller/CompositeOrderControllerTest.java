@@ -19,6 +19,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -78,6 +79,75 @@ class CompositeOrderControllerTest {
                 .andExpect(jsonPath("$.status").value("NEW"))
                 .andExpect(jsonPath("$.bookingSteps[0].resourceId")
                         .value(resourceId.toString()));
+    }
+
+    @Test
+    void shouldCreateOrderWithPricesAndReturnPricingFields() throws Exception {
+        UUID id = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+        UUID resourceId = UUID.randomUUID();
+
+        OrderResponse response = new OrderResponse(
+                id,
+                OrderStatus.NEW,
+                Instant.parse("2026-10-03T10:00:00Z"),
+                Instant.parse("2026-10-03T10:00:00Z"),
+                new BigDecimal("10000.00"),
+                new BigDecimal("67.00"),
+                new BigDecimal("10067.00"),
+                List.of(new BookingStepResponse(
+                        stepId,
+                        BookingType.FLIGHT,
+                        resourceId,
+                        BookingStatus.PENDING,
+                        null,
+                        new BigDecimal("10000.00"))),
+                List.of(),
+                null);
+
+        when(service.createOrder(any())).thenReturn(response);
+
+        mockMvc.perform(
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookings": [
+                                    {
+                                      "type": "FLIGHT",
+                                      "resourceId": "%s",
+                                      "price": 10000.00
+                                    }
+                                  ]
+                                }
+                                """.formatted(resourceId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(id.toString()))
+                .andExpect(jsonPath("$.basePrice").value(10000.00))
+                .andExpect(jsonPath("$.serviceFee").value(67.00))
+                .andExpect(jsonPath("$.totalPrice").value(10067.00))
+                .andExpect(jsonPath("$.bookingSteps[0].price").value(10000.00));
+    }
+
+    @Test
+    void shouldRejectOrderWithNegativePrice() throws Exception {
+        UUID resourceId = UUID.randomUUID();
+
+        mockMvc.perform(
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookings": [
+                                    {
+                                      "type": "FLIGHT",
+                                      "resourceId": "%s",
+                                      "price": -50.00
+                                    }
+                                  ]
+                                }
+                                """.formatted(resourceId)))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

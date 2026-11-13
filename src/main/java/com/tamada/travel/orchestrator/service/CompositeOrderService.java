@@ -45,7 +45,7 @@ public class CompositeOrderService {
         CompositeOrder order = CompositeOrder.create();
 
         for (var booking : request.bookings()) {
-            order.addBookingStep(booking.type(), booking.resourceId());
+            order.addBookingStep(booking.type(), booking.resourceId(), booking.price());
         }
 
         if (request.passengers() != null) {
@@ -130,7 +130,8 @@ public class CompositeOrderService {
                         step.getType(),
                         step.getResourceId(),
                         step.getStatus(),
-                        step.getExternalId()))
+                        step.getExternalId(),
+                        step.getPrice()))
                 .toList();
 
         var passengers = order.getPassengers() != null
@@ -161,6 +162,9 @@ public class CompositeOrderService {
                 order.getStatus(),
                 order.getCreatedAt(),
                 order.getUpdatedAt(),
+                order.getBasePrice(),
+                order.getServiceFee(),
+                order.getTotalPrice(),
                 steps,
                 passengers,
                 contactResponse);

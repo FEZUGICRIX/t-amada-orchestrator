@@ -5,6 +5,8 @@ import com.tamada.travel.orchestrator.model.BookingType;
 import com.tamada.travel.orchestrator.model.OrderStatus;
 import com.tamada.travel.orchestrator.model.PassengerType;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -13,11 +15,34 @@ import java.util.UUID;
 public record OrderCreatedOutboxPayload(
         UUID orderId,
         OrderStatus status,
+        BigDecimal basePrice,
+        BigDecimal serviceFee,
+        BigDecimal totalPrice,
         CustomerContactPayload customerContact,
         GroupCompositionPayload groupComposition,
         List<SelectedOptionPayload> selectedOptions,
         Instant createdAt
 ) {
+    public OrderCreatedOutboxPayload(
+            UUID orderId,
+            OrderStatus status,
+            CustomerContactPayload customerContact,
+            GroupCompositionPayload groupComposition,
+            List<SelectedOptionPayload> selectedOptions,
+            Instant createdAt
+    ) {
+        this(
+                orderId,
+                status,
+                BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
+                BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
+                BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
+                customerContact,
+                groupComposition,
+                selectedOptions,
+                createdAt
+        );
+    }
 
     public record CustomerContactPayload(
             String phone,
@@ -50,7 +75,16 @@ public record OrderCreatedOutboxPayload(
             UUID stepId,
             BookingType type,
             UUID resourceId,
-            BookingStatus status
+            BookingStatus status,
+            BigDecimal price
     ) {
+        public SelectedOptionPayload(
+                UUID stepId,
+                BookingType type,
+                UUID resourceId,
+                BookingStatus status
+        ) {
+            this(stepId, type, resourceId, status, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+        }
     }
 }

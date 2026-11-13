@@ -4,6 +4,7 @@ import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
 import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -21,7 +22,29 @@ class BookingStepTest {
         assertEquals(BookingType.FLIGHT, step.getType());
         assertEquals(resourceId, step.getResourceId());
         assertEquals(BookingStatus.PENDING, step.getStatus());
+        assertEquals(new BigDecimal("0.00"), step.getPrice());
         assertSame(order, step.getCompositeOrder());
+    }
+
+    @Test
+    void shouldCreateBookingStepWithExplicitPrice() {
+        CompositeOrder order = CompositeOrder.create();
+        UUID resourceId = UUID.randomUUID();
+
+        BookingStep step = new BookingStep(order, BookingType.FLIGHT, resourceId, new BigDecimal("12500.50"));
+
+        assertEquals(new BigDecimal("12500.50"), step.getPrice());
+    }
+
+    @Test
+    void shouldRejectNegativePrice() {
+        CompositeOrder order = CompositeOrder.create();
+        UUID resourceId = UUID.randomUUID();
+
+        assertThrows(
+                InvalidBookingDataException.class,
+                () -> new BookingStep(order, BookingType.FLIGHT, resourceId, new BigDecimal("-10.00"))
+        );
     }
 
     @Test

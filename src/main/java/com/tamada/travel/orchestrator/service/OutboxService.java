@@ -104,12 +104,16 @@ public class OutboxService {
                         step.getId(),
                         step.getType(),
                         step.getResourceId(),
-                        step.getStatus()))
+                        step.getStatus(),
+                        step.getPrice()))
                 .toList();
 
         return new OrderCreatedOutboxPayload(
                 order.getId(),
                 order.getStatus(),
+                order.getBasePrice(),
+                order.getServiceFee(),
+                order.getTotalPrice(),
                 contactPayload,
                 groupComposition,
                 selectedOptions,

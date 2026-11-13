@@ -4,6 +4,8 @@ import com.tamada.travel.orchestrator.model.BookingStatus;
 import com.tamada.travel.orchestrator.model.BookingType;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.UUID;
 
 @Schema(description = "Информация о шаге бронирования в составе заказа")
@@ -21,6 +23,18 @@ public record BookingStepResponse(
         BookingStatus status,
 
         @Schema(description = "Идентификатор созданной брони во внешнем сервисе (null до подтверждения)", example = "30000000-0000-4000-8000-000000000003")
-        String externalId
+        String externalId,
+
+        @Schema(description = "Стоимость шага бронирования", example = "15000.00")
+        BigDecimal price
 ) {
+    public BookingStepResponse(
+            UUID id,
+            BookingType type,
+            UUID resourceId,
+            BookingStatus status,
+            String externalId
+    ) {
+        this(id, type, resourceId, status, externalId, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+    }
 }

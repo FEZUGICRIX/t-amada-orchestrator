@@ -3,6 +3,7 @@ package com.tamada.travel.orchestrator.model;
 import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -17,6 +18,39 @@ class CompositeOrderTest {
 
         assertEquals(OrderStatus.NEW, order.getStatus());
         assertTrue(order.getBookingSteps().isEmpty());
+        assertEquals(new BigDecimal("0.00"), order.getBasePrice());
+        assertEquals(new BigDecimal("0.00"), order.getServiceFee());
+        assertEquals(new BigDecimal("0.00"), order.getTotalPrice());
+    }
+
+    @Test
+    void shouldCalculatePricingAndServiceFeeWhenStepsAdded() {
+        CompositeOrder order = CompositeOrder.create();
+
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID(), new BigDecimal("10000.00"));
+
+        // 10000 * 0.0067 = 67.00
+        assertEquals(new BigDecimal("10000.00"), order.getBasePrice());
+        assertEquals(new BigDecimal("67.00"), order.getServiceFee());
+        assertEquals(new BigDecimal("10067.00"), order.getTotalPrice());
+
+        // Add hotel: 5000.00 -> total base = 15000.00
+        // 15000 * 0.0067 = 100.50 -> total price = 15100.50
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID(), new BigDecimal("5000.00"));
+        assertEquals(new BigDecimal("15000.00"), order.getBasePrice());
+        assertEquals(new BigDecimal("100.50"), order.getServiceFee());
+        assertEquals(new BigDecimal("15100.50"), order.getTotalPrice());
+    }
+
+    @Test
+    void shouldRoundServiceFeeHalfUp() {
+        CompositeOrder order = CompositeOrder.create();
+
+        // 1234.56 * 0.0067 = 8.271552 -> 8.27
+        order.addBookingStep(BookingType.INSURANCE, UUID.randomUUID(), new BigDecimal("1234.56"));
+        assertEquals(new BigDecimal("1234.56"), order.getBasePrice());
+        assertEquals(new BigDecimal("8.27"), order.getServiceFee());
+        assertEquals(new BigDecimal("1242.83"), order.getTotalPrice());
     }
 
     @Test

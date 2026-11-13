@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.tamada.travel.orchestrator.model.OrderStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -21,6 +23,15 @@ public record OrderResponse(
 
         @Schema(description = "Дата и время последнего обновления заказа", example = "2026-10-31T18:05:00Z")
         Instant updatedAt,
+
+        @Schema(description = "Базовая стоимость заказа (сумма всех шагов)", example = "10000.00")
+        BigDecimal basePrice,
+
+        @Schema(description = "Сервисный сбор (0.67% от полной стоимости заказа)", example = "67.00")
+        BigDecimal serviceFee,
+
+        @Schema(description = "Итоговая стоимость заказа с учётом сервисного сбора", example = "10067.00")
+        BigDecimal totalPrice,
 
         @Schema(description = "Список шагов бронирования заказа")
         List<BookingStepResponse> bookingSteps,
@@ -41,5 +52,28 @@ public record OrderResponse(
             List<BookingStepResponse> bookingSteps
     ) {
         this(id, status, createdAt, updatedAt, bookingSteps, List.of(), null);
+    }
+
+    public OrderResponse(
+            UUID id,
+            OrderStatus status,
+            Instant createdAt,
+            Instant updatedAt,
+            List<BookingStepResponse> bookingSteps,
+            List<PassengerResponse> passengers,
+            CustomerContactResponse customerContact
+    ) {
+        this(
+                id,
+                status,
+                createdAt,
+                updatedAt,
+                BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
+                BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
+                BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
+                bookingSteps,
+                passengers,
+                customerContact
+        );
     }
 }

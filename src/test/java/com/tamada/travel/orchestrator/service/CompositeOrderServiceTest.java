@@ -18,6 +18,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -74,6 +75,36 @@ class CompositeOrderServiceTest {
         assertEquals(
                 hotelResourceId,
                 response.bookingSteps().get(1).resourceId());
+
+        verify(repository).save(any(CompositeOrder.class));
+        verify(outboxService).saveOrderCreatedEvent(any(CompositeOrder.class));
+    }
+
+    @Test
+    void shouldCreateOrderWithPricesAndCalculateServiceFee() {
+        UUID flightResourceId = UUID.randomUUID();
+        UUID hotelResourceId = UUID.randomUUID();
+        CreateOrderRequest request = new CreateOrderRequest(
+                List.of(
+                        new CreateBookingStepRequest(
+                                BookingType.FLIGHT, flightResourceId, new BigDecimal("20000.00")),
+                        new CreateBookingStepRequest(
+                                BookingType.HOTEL, hotelResourceId, new BigDecimal("10000.00"))));
+
+        when(repository.save(any(CompositeOrder.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderResponse response = service.createOrder(request);
+
+        assertEquals(OrderStatus.NEW, response.status());
+        assertEquals(2, response.bookingSteps().size());
+        assertEquals(new BigDecimal("20000.00"), response.bookingSteps().get(0).price());
+        assertEquals(new BigDecimal("10000.00"), response.bookingSteps().get(1).price());
+
+        // 30000 * 0.0067 = 201.00
+        assertEquals(new BigDecimal("30000.00"), response.basePrice());
+        assertEquals(new BigDecimal("201.00"), response.serviceFee());
+        assertEquals(new BigDecimal("30201.00"), response.totalPrice());
 
         verify(repository).save(any(CompositeOrder.class));
         verify(outboxService).saveOrderCreatedEvent(any(CompositeOrder.class));

@@ -122,6 +122,40 @@ Content-Type: application/json
 }
 
 
+### 2.2. Создать заказ со стоимостью шагов и расчётом сервисного сбора (0.67%)
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookings": [
+    {
+      "type": "FLIGHT",
+      "resourceId": "{{flightResourceId}}",
+      "price": 15000.00
+    },
+    {
+      "type": "HOTEL",
+      "resourceId": "{{hotelResourceId}}",
+      "price": 8500.00
+    },
+    {
+      "type": "INSURANCE",
+      "resourceId": "{{insuranceResourceId}}",
+      "price": 1200.00
+    },
+    {
+      "type": "TRANSFER",
+      "resourceId": "{{transferResourceId}}",
+      "price": 2500.00
+    }
+  ],
+  "customer_contact": {
+    "phone": "+79991234567",
+    "email": "ivanov@example.com"
+  }
+}
+
+
 
 ### 3. Получить заказ по ID
 GET {{baseUrl}}/api/v1/orders/{{orderId}}

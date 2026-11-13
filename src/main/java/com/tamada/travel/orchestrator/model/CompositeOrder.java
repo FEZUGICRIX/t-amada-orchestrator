@@ -8,10 +8,13 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -50,18 +53,53 @@ public class CompositeOrder {
     @OneToOne(mappedBy = "compositeOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private CustomerContact customerContact;
 
+    public static final BigDecimal SERVICE_FEE_RATE = new BigDecimal("0.0067");
+
+    @Column(name = "base_price", nullable = false, precision = 12, scale = 2)
+    private BigDecimal basePrice = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+
+    @Column(name = "service_fee", nullable = false, precision = 12, scale = 2)
+    private BigDecimal serviceFee = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+
+    @Column(name = "total_price", nullable = false, precision = 12, scale = 2)
+    private BigDecimal totalPrice = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+
     protected CompositeOrder() {
     }
 
     public static CompositeOrder create() {
         CompositeOrder order = new CompositeOrder();
         order.status = OrderStatus.NEW;
+        order.basePrice = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        order.serviceFee = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        order.totalPrice = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         return order;
     }
 
     public void addBookingStep(BookingType type, UUID resourceId) {
-        BookingStep bookingStep = new BookingStep(this, type, resourceId);
+        addBookingStep(type, resourceId, BigDecimal.ZERO);
+    }
+
+    public void addBookingStep(BookingType type, UUID resourceId, BigDecimal price) {
+        BookingStep bookingStep = new BookingStep(this, type, resourceId, price);
         bookingSteps.add(bookingStep);
+        recalculatePricing();
+    }
+
+    public void recalculatePricing() {
+        this.basePrice = bookingSteps.stream()
+                .map(BookingStep::getPrice)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        this.serviceFee = this.basePrice
+                .multiply(SERVICE_FEE_RATE)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        this.totalPrice = this.basePrice
+                .add(this.serviceFee)
+                .setScale(2, RoundingMode.HALF_UP);
     }
 
     public void addPassenger(

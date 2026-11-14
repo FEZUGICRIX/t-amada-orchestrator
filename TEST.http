@@ -156,6 +156,69 @@ Content-Type: application/json
 }
 
 
+### 2.3. Создать заказ с бронированием нескольких номеров в одном отеле
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookings": [
+    {
+      "type": "FLIGHT",
+      "resourceId": "{{flightResourceId}}",
+      "price": 15000.00
+    },
+    {
+      "type": "HOTEL",
+      "resourceId": "{{hotelResourceId}}",
+      "roomsCount": 2,
+      "rooms": [
+        {
+          "category": "Люкс",
+          "tariff": "С завтраком",
+          "price": 12000.00,
+          "stayConditions": "Завтрак 'шведский стол' включен, бесплатная отмена до 14:00 дня заезда"
+        },
+        {
+          "category": "Стандарт",
+          "tariff": "Без питания",
+          "price": 7000.00,
+          "stayConditions": "Невозвратный тариф, заезд после 14:00, выезд до 12:00"
+        }
+      ]
+    },
+    {
+      "type": "INSURANCE",
+      "resourceId": "{{insuranceResourceId}}",
+      "price": 1200.00
+    }
+  ],
+  "passengers": [
+    {
+      "type": "ADULT",
+      "first_name": "Иван",
+      "last_name": "Иванов",
+      "birth_date": "1990-05-15",
+      "citizenship": "Россия",
+      "document_type": "Паспорт РФ",
+      "document_number": "4510 123456"
+    },
+    {
+      "type": "ADULT",
+      "first_name": "Елена",
+      "last_name": "Иванова",
+      "birth_date": "1992-09-20",
+      "citizenship": "Россия",
+      "document_type": "Паспорт РФ",
+      "document_number": "4510 654321"
+    }
+  ],
+  "customer_contact": {
+    "phone": "+79991234567",
+    "email": "ivanov@example.com"
+  }
+}
+
+
 
 ### 3. Получить заказ по ID
 GET {{baseUrl}}/api/v1/orders/{{orderId}}

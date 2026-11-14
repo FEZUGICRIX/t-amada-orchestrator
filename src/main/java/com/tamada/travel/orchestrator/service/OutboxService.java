@@ -100,12 +100,29 @@ public class OutboxService {
         }
 
         var selectedOptions = order.getBookingSteps().stream()
-                .map(step -> new OrderCreatedOutboxPayload.SelectedOptionPayload(
-                        step.getId(),
-                        step.getType(),
-                        step.getResourceId(),
-                        step.getStatus(),
-                        step.getPrice()))
+                .map(step -> {
+                    Integer roomsCount = null;
+                    List<OrderCreatedOutboxPayload.HotelRoomPayload> roomPayloads = null;
+                    if (step.getType() == com.tamada.travel.orchestrator.model.BookingType.HOTEL && !step.getRooms().isEmpty()) {
+                        roomsCount = step.getRooms().size();
+                        roomPayloads = step.getRooms().stream()
+                                .map(r -> new OrderCreatedOutboxPayload.HotelRoomPayload(
+                                        r.getId(),
+                                        r.getCategory(),
+                                        r.getTariff(),
+                                        r.getPrice(),
+                                        r.getStayConditions()))
+                                .toList();
+                    }
+                    return new OrderCreatedOutboxPayload.SelectedOptionPayload(
+                            step.getId(),
+                            step.getType(),
+                            step.getResourceId(),
+                            step.getStatus(),
+                            step.getPrice(),
+                            roomsCount,
+                            roomPayloads);
+                })
                 .toList();
 
         return new OrderCreatedOutboxPayload(

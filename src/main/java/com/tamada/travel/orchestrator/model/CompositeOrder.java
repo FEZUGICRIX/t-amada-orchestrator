@@ -76,14 +76,15 @@ public class CompositeOrder {
         return order;
     }
 
-    public void addBookingStep(BookingType type, UUID resourceId) {
-        addBookingStep(type, resourceId, BigDecimal.ZERO);
+    public BookingStep addBookingStep(BookingType type, UUID resourceId) {
+        return addBookingStep(type, resourceId, BigDecimal.ZERO);
     }
 
-    public void addBookingStep(BookingType type, UUID resourceId, BigDecimal price) {
+    public BookingStep addBookingStep(BookingType type, UUID resourceId, BigDecimal price) {
         BookingStep bookingStep = new BookingStep(this, type, resourceId, price);
         bookingSteps.add(bookingStep);
         recalculatePricing();
+        return bookingStep;
     }
 
     public void recalculatePricing() {

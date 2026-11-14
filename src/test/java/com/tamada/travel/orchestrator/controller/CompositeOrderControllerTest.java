@@ -2,6 +2,7 @@ package com.tamada.travel.orchestrator.controller;
 
 import com.tamada.travel.orchestrator.dto.BookingStepResponse;
 import com.tamada.travel.orchestrator.dto.CustomerContactResponse;
+import com.tamada.travel.orchestrator.dto.HotelRoomResponse;
 import com.tamada.travel.orchestrator.dto.OrderResponse;
 import com.tamada.travel.orchestrator.dto.PassengerResponse;
 import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
@@ -506,5 +507,145 @@ class CompositeOrderControllerTest {
                 post("/api/v1/orders/{id}/cancel", id))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409));
+    }
+
+    @Test
+    void shouldCreateOrderWithMultipleHotelRooms() throws Exception {
+        UUID id = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+        UUID hotelId = UUID.randomUUID();
+        UUID room1Id = UUID.randomUUID();
+        UUID room2Id = UUID.randomUUID();
+
+        List<HotelRoomResponse> roomResponses = List.of(
+                new HotelRoomResponse(room1Id, "Люкс", "С завтраком", new BigDecimal("12000.00"), "Завтрак включен"),
+                new HotelRoomResponse(room2Id, "Стандарт", "Базовый", new BigDecimal("8000.00"), "Без отмены")
+        );
+
+        BookingStepResponse stepResponse = new BookingStepResponse(
+                stepId,
+                BookingType.HOTEL,
+                hotelId,
+                BookingStatus.PENDING,
+                null,
+                new BigDecimal("20000.00"),
+                2,
+                roomResponses
+        );
+
+        OrderResponse response = new OrderResponse(
+                id,
+                OrderStatus.NEW,
+                Instant.parse("2026-10-03T10:00:00Z"),
+                Instant.parse("2026-10-03T10:00:00Z"),
+                new BigDecimal("20000.00"),
+                new BigDecimal("134.00"),
+                new BigDecimal("20134.00"),
+                List.of(stepResponse),
+                List.of(),
+                null
+        );
+
+        when(service.createOrder(any())).thenReturn(response);
+
+        mockMvc.perform(
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookings": [
+                                    {
+                                      "type": "HOTEL",
+                                      "resourceId": "%s",
+                                      "roomsCount": 2,
+                                      "rooms": [
+                                        {
+                                          "category": "Люкс",
+                                          "tariff": "С завтраком",
+                                          "price": 12000.00,
+                                          "stayConditions": "Завтрак включен"
+                                        },
+                                        {
+                                          "category": "Стандарт",
+                                          "tariff": "Базовый",
+                                          "price": 8000.00,
+                                          "stayConditions": "Без отмены"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                                """.formatted(hotelId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(id.toString()))
+                .andExpect(jsonPath("$.bookingSteps[0].type").value("HOTEL"))
+                .andExpect(jsonPath("$.bookingSteps[0].roomsCount").value(2))
+                .andExpect(jsonPath("$.bookingSteps[0].rooms[0].category").value("Люкс"))
+                .andExpect(jsonPath("$.bookingSteps[0].rooms[0].tariff").value("С завтраком"))
+                .andExpect(jsonPath("$.bookingSteps[0].rooms[0].price").value(12000.00))
+                .andExpect(jsonPath("$.bookingSteps[0].rooms[0].stayConditions").value("Завтрак включен"))
+                .andExpect(jsonPath("$.bookingSteps[0].rooms[1].category").value("Стандарт"))
+                .andExpect(jsonPath("$.bookingSteps[0].rooms[1].tariff").value("Базовый"))
+                .andExpect(jsonPath("$.bookingSteps[0].rooms[1].price").value(8000.00))
+                .andExpect(jsonPath("$.bookingSteps[0].rooms[1].stayConditions").value("Без отмены"))
+                .andExpect(jsonPath("$.basePrice").value(20000.00))
+                .andExpect(jsonPath("$.serviceFee").value(134.00))
+                .andExpect(jsonPath("$.totalPrice").value(20134.00));
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenHotelRoomHasBlankCategory() throws Exception {
+        UUID hotelId = UUID.randomUUID();
+
+        mockMvc.perform(
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookings": [
+                                    {
+                                      "type": "HOTEL",
+                                      "resourceId": "%s",
+                                      "rooms": [
+                                        {
+                                          "category": "  ",
+                                          "tariff": "Базовый",
+                                          "price": 8000.00
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                                """.formatted(hotelId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenHotelRoomHasNegativePrice() throws Exception {
+        UUID hotelId = UUID.randomUUID();
+
+        mockMvc.perform(
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookings": [
+                                    {
+                                      "type": "HOTEL",
+                                      "resourceId": "%s",
+                                      "rooms": [
+                                        {
+                                          "category": "Люкс",
+                                          "tariff": "Базовый",
+                                          "price": -500.00
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                                """.formatted(hotelId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
     }
 }

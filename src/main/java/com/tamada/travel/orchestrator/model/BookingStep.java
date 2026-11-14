@@ -13,6 +13,9 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.hibernate.annotations.UuidGenerator.Style.VERSION_7;
@@ -48,6 +51,10 @@ public class BookingStep {
     @Column(name = "price", nullable = false, precision = 12, scale = 2)
     private BigDecimal price = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
 
+    @OneToMany(mappedBy = "bookingStep", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("createdAt ASC, id ASC")
+    private List<HotelRoom> rooms = new ArrayList<>();
+
     @CreatedDate
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
@@ -80,6 +87,28 @@ public class BookingStep {
                 ? price.setScale(2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         this.status = BookingStatus.PENDING;
+    }
+
+    public void addRoom(String category, String tariff, BigDecimal roomPrice, String stayConditions) {
+        if (this.type != BookingType.HOTEL) {
+            throw new InvalidBookingDataException("Rooms can only be added to HOTEL booking step");
+        }
+        HotelRoom room = new HotelRoom(this, category, tariff, roomPrice, stayConditions);
+        this.rooms.add(room);
+    }
+
+    public void recalculatePriceFromRooms() {
+        if (rooms != null && !rooms.isEmpty()) {
+            this.price = rooms.stream()
+                    .map(HotelRoom::getPrice)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add)
+                    .setScale(2, RoundingMode.HALF_UP);
+        }
+    }
+
+    public int getRoomsCount() {
+        return rooms != null ? rooms.size() : 0;
     }
 
     public void startProcessing() {
@@ -137,4 +166,5 @@ public class BookingStep {
         }
 
         this.status = BookingStatus.CANCELLED;
-    }}
+    }
+}

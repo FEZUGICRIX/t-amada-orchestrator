@@ -135,4 +135,47 @@ class OutboxServiceTest {
         assertEquals(BookingType.INSURANCE, payload.selectedOptions().get(3).type());
         assertEquals(BookingType.TRANSFER, payload.selectedOptions().get(4).type());
     }
+
+    @Test
+    void shouldSaveOrderCreatedEventWithHotelRooms() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        CompositeOrder order = CompositeOrder.create();
+        ReflectionTestUtils.setField(order, "id", orderId);
+
+        UUID hotelId = UUID.randomUUID();
+        var step = order.addBookingStep(BookingType.HOTEL, hotelId, BigDecimal.ZERO);
+        step.addRoom("Люкс", "С завтраком", new BigDecimal("12000.00"), "Завтрак включен");
+        step.addRoom("Стандарт", "Базовый", new BigDecimal("7000.00"), "Без отмены");
+        step.recalculatePriceFromRooms();
+        order.recalculatePricing();
+
+        when(outboxRepository.save(any(OutboxMessage.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        OutboxMessage result = outboxService.saveOrderCreatedEvent(order);
+        assertNotNull(result);
+
+        OrderCreatedOutboxPayload payload = objectMapper.readValue(
+                result.getPayload(),
+                OrderCreatedOutboxPayload.class
+        );
+
+        assertEquals(1, payload.selectedOptions().size());
+        var hotelOption = payload.selectedOptions().get(0);
+        assertEquals(BookingType.HOTEL, hotelOption.type());
+        assertEquals(new BigDecimal("19000.00"), hotelOption.price());
+        assertEquals(2, hotelOption.roomsCount());
+        assertNotNull(hotelOption.rooms());
+        assertEquals(2, hotelOption.rooms().size());
+
+        assertEquals("Люкс", hotelOption.rooms().get(0).category());
+        assertEquals("С завтраком", hotelOption.rooms().get(0).tariff());
+        assertEquals(new BigDecimal("12000.00"), hotelOption.rooms().get(0).price());
+        assertEquals("Завтрак включен", hotelOption.rooms().get(0).stayConditions());
+
+        assertEquals("Стандарт", hotelOption.rooms().get(1).category());
+        assertEquals("Базовый", hotelOption.rooms().get(1).tariff());
+        assertEquals(new BigDecimal("7000.00"), hotelOption.rooms().get(1).price());
+        assertEquals("Без отмены", hotelOption.rooms().get(1).stayConditions());
+    }
 }

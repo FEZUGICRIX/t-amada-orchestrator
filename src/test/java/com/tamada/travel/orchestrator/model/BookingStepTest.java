@@ -213,4 +213,56 @@ class BookingStepTest {
 
         assertTrue(order.startNextBookingStep().isEmpty());
     }
+
+    @Test
+    void shouldAddRoomsToHotelBookingStepAndRecalculatePrice() {
+        CompositeOrder order = CompositeOrder.create();
+        BookingStep hotelStep = new BookingStep(order, BookingType.HOTEL, UUID.randomUUID());
+
+        hotelStep.addRoom("Deluxe", "Breakfast Included", new BigDecimal("12000.00"), "Free cancellation");
+        hotelStep.addRoom("Standard", "Room Only", new BigDecimal("7000.00"), "Non-refundable");
+
+        assertEquals(2, hotelStep.getRoomsCount());
+        assertEquals(2, hotelStep.getRooms().size());
+
+        hotelStep.recalculatePriceFromRooms();
+        assertEquals(new BigDecimal("19000.00"), hotelStep.getPrice());
+
+        HotelRoom firstRoom = hotelStep.getRooms().get(0);
+        assertEquals("Deluxe", firstRoom.getCategory());
+        assertEquals("Breakfast Included", firstRoom.getTariff());
+        assertEquals(new BigDecimal("12000.00"), firstRoom.getPrice());
+        assertEquals("Free cancellation", firstRoom.getStayConditions());
+        assertSame(hotelStep, firstRoom.getBookingStep());
+    }
+
+    @Test
+    void shouldRejectAddingRoomsToNonHotelStep() {
+        CompositeOrder order = CompositeOrder.create();
+        BookingStep flightStep = new BookingStep(order, BookingType.FLIGHT, UUID.randomUUID());
+
+        assertThrows(
+                InvalidBookingDataException.class,
+                () -> flightStep.addRoom("Standard", "Base", new BigDecimal("5000.00"), "Conditions")
+        );
+    }
+
+    @Test
+    void shouldValidateHotelRoomParameters() {
+        CompositeOrder order = CompositeOrder.create();
+        BookingStep hotelStep = new BookingStep(order, BookingType.HOTEL, UUID.randomUUID());
+
+        assertThrows(
+                InvalidBookingDataException.class,
+                () -> hotelStep.addRoom("", "Tariff", new BigDecimal("5000.00"), null)
+        );
+        assertThrows(
+                InvalidBookingDataException.class,
+                () -> hotelStep.addRoom("Category", "", new BigDecimal("5000.00"), null)
+        );
+        assertThrows(
+                InvalidBookingDataException.class,
+                () -> hotelStep.addRoom("Category", "Tariff", new BigDecimal("-100.00"), null)
+        );
+    }
 }

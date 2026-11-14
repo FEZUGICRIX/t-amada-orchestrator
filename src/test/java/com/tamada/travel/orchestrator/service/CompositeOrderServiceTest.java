@@ -3,6 +3,7 @@ package com.tamada.travel.orchestrator.service;
 import com.tamada.travel.orchestrator.dto.CreateBookingStepRequest;
 import com.tamada.travel.orchestrator.dto.CreateOrderRequest;
 import com.tamada.travel.orchestrator.dto.CustomerContactRequest;
+import com.tamada.travel.orchestrator.dto.HotelRoomRequest;
 import com.tamada.travel.orchestrator.dto.OrderResponse;
 import com.tamada.travel.orchestrator.dto.PassengerRequest;
 import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
@@ -311,5 +312,139 @@ class CompositeOrderServiceTest {
                 OrderNotFoundException.class,
                 () -> service.cancelOrder(id));
         verify(orchestrationService).cancel(id);
+    }
+
+    @Test
+    void shouldCreateOrderWithMultipleHotelRoomsAndCalculatePricing() {
+        UUID hotelId = UUID.randomUUID();
+
+        List<HotelRoomRequest> rooms = List.of(
+                new HotelRoomRequest("Люкс", "С завтраком", new BigDecimal("12000.00"), "Завтрак включен"),
+                new HotelRoomRequest("Стандарт", "Без питания", new BigDecimal("8000.00"), "Невозвратный тариф")
+        );
+
+        CreateBookingStepRequest hotelStepReq = new CreateBookingStepRequest(
+                BookingType.HOTEL,
+                hotelId,
+                null,
+                2,
+                rooms
+        );
+
+        CreateOrderRequest request = new CreateOrderRequest(List.of(hotelStepReq));
+
+        when(repository.save(any(CompositeOrder.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderResponse response = service.createOrder(request);
+
+        assertEquals(OrderStatus.NEW, response.status());
+        assertEquals(1, response.bookingSteps().size());
+
+        var stepResponse = response.bookingSteps().get(0);
+        assertEquals(BookingType.HOTEL, stepResponse.type());
+        assertEquals(hotelId, stepResponse.resourceId());
+        assertEquals(new BigDecimal("20000.00"), stepResponse.price());
+        assertEquals(2, stepResponse.roomsCount());
+        assertNotNull(stepResponse.rooms());
+        assertEquals(2, stepResponse.rooms().size());
+
+        var room1 = stepResponse.rooms().get(0);
+        assertEquals("Люкс", room1.category());
+        assertEquals("С завтраком", room1.tariff());
+        assertEquals(new BigDecimal("12000.00"), room1.price());
+        assertEquals("Завтрак включен", room1.stayConditions());
+
+        var room2 = stepResponse.rooms().get(1);
+        assertEquals("Стандарт", room2.category());
+        assertEquals("Без питания", room2.tariff());
+        assertEquals(new BigDecimal("8000.00"), room2.price());
+        assertEquals("Невозвратный тариф", room2.stayConditions());
+
+        // Base price: 20000.00, fee (0.67%): 134.00, total: 20134.00
+        assertEquals(new BigDecimal("20000.00"), response.basePrice());
+        assertEquals(new BigDecimal("134.00"), response.serviceFee());
+        assertEquals(new BigDecimal("20134.00"), response.totalPrice());
+
+        verify(repository).save(any(CompositeOrder.class));
+        verify(outboxService).saveOrderCreatedEvent(any(CompositeOrder.class));
+    }
+
+    @Test
+    void shouldRejectWhenRoomsCountDoesNotMatchRoomsSize() {
+        CreateBookingStepRequest hotelStepReq = new CreateBookingStepRequest(
+                BookingType.HOTEL,
+                UUID.randomUUID(),
+                new BigDecimal("10000.00"),
+                3,
+                List.of(
+                        new HotelRoomRequest("Люкс", "С завтраком", new BigDecimal("5000.00")),
+                        new HotelRoomRequest("Стандарт", "Базовый", new BigDecimal("5000.00"))
+                )
+        );
+
+        CreateOrderRequest request = new CreateOrderRequest(List.of(hotelStepReq));
+
+        assertThrows(
+                InvalidBookingDataException.class,
+                () -> service.createOrder(request)
+        );
+    }
+
+    @Test
+    void shouldRejectWhenRoomsCountSpecifiedWithoutRooms() {
+        CreateBookingStepRequest hotelStepReq = new CreateBookingStepRequest(
+                BookingType.HOTEL,
+                UUID.randomUUID(),
+                new BigDecimal("10000.00"),
+                2,
+                null
+        );
+
+        CreateOrderRequest request = new CreateOrderRequest(List.of(hotelStepReq));
+
+        assertThrows(
+                InvalidBookingDataException.class,
+                () -> service.createOrder(request)
+        );
+    }
+
+    @Test
+    void shouldRejectRoomsForNonHotelBookingStep() {
+        CreateBookingStepRequest flightStep = new CreateBookingStepRequest(
+                BookingType.FLIGHT,
+                UUID.randomUUID(),
+                new BigDecimal("10000.00"),
+                1,
+                List.of(new HotelRoomRequest("Люкс", "Тариф", new BigDecimal("10000.00")))
+        );
+
+        CreateOrderRequest request = new CreateOrderRequest(List.of(flightStep));
+
+        assertThrows(
+                InvalidBookingDataException.class,
+                () -> service.createOrder(request)
+        );
+    }
+
+    @Test
+    void shouldRejectWhenStepPriceDoesNotMatchTotalRoomsPrice() {
+        CreateBookingStepRequest hotelStepReq = new CreateBookingStepRequest(
+                BookingType.HOTEL,
+                UUID.randomUUID(),
+                new BigDecimal("15000.00"),
+                2,
+                List.of(
+                        new HotelRoomRequest("Люкс", "С завтраком", new BigDecimal("6000.00")),
+                        new HotelRoomRequest("Стандарт", "Базовый", new BigDecimal("6000.00"))
+                )
+        );
+
+        CreateOrderRequest request = new CreateOrderRequest(List.of(hotelStepReq));
+
+        assertThrows(
+                InvalidBookingDataException.class,
+                () -> service.createOrder(request)
+        );
     }
 }

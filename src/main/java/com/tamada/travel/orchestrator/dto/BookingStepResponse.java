@@ -1,11 +1,15 @@
 package com.tamada.travel.orchestrator.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.tamada.travel.orchestrator.model.BookingStatus;
 import com.tamada.travel.orchestrator.model.BookingType;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.List;
 import java.util.UUID;
 
 @Schema(description = "Информация о шаге бронирования в составе заказа")
@@ -26,7 +30,17 @@ public record BookingStepResponse(
         String externalId,
 
         @Schema(description = "Стоимость шага бронирования", example = "15000.00")
-        BigDecimal price
+        BigDecimal price,
+
+        @Schema(description = "Количество номеров (только для отеля)", example = "2")
+        @JsonProperty("roomsCount")
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        Integer roomsCount,
+
+        @ArraySchema(schema = @Schema(description = "Список забронированных номеров в отеле"))
+        @JsonProperty("rooms")
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        List<HotelRoomResponse> rooms
 ) {
     public BookingStepResponse(
             UUID id,
@@ -35,6 +49,17 @@ public record BookingStepResponse(
             BookingStatus status,
             String externalId
     ) {
-        this(id, type, resourceId, status, externalId, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+        this(id, type, resourceId, status, externalId, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP), null, null);
+    }
+
+    public BookingStepResponse(
+            UUID id,
+            BookingType type,
+            UUID resourceId,
+            BookingStatus status,
+            String externalId,
+            BigDecimal price
+    ) {
+        this(id, type, resourceId, status, externalId, price, null, null);
     }
 }

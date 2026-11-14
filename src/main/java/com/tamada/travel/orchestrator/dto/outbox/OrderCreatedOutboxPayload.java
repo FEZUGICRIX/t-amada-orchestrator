@@ -1,5 +1,6 @@
 package com.tamada.travel.orchestrator.dto.outbox;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.tamada.travel.orchestrator.model.BookingStatus;
 import com.tamada.travel.orchestrator.model.BookingType;
 import com.tamada.travel.orchestrator.model.OrderStatus;
@@ -76,15 +77,38 @@ public record OrderCreatedOutboxPayload(
             BookingType type,
             UUID resourceId,
             BookingStatus status,
-            BigDecimal price
+            BigDecimal price,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            Integer roomsCount,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY)
+            List<HotelRoomPayload> rooms
     ) {
+        public SelectedOptionPayload(
+                UUID stepId,
+                BookingType type,
+                UUID resourceId,
+                BookingStatus status,
+                BigDecimal price
+        ) {
+            this(stepId, type, resourceId, status, price, null, null);
+        }
+
         public SelectedOptionPayload(
                 UUID stepId,
                 BookingType type,
                 UUID resourceId,
                 BookingStatus status
         ) {
-            this(stepId, type, resourceId, status, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            this(stepId, type, resourceId, status, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP), null, null);
         }
+    }
+
+    public record HotelRoomPayload(
+            UUID id,
+            String category,
+            String tariff,
+            BigDecimal price,
+            String stayConditions
+    ) {
     }
 }

@@ -10,7 +10,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -45,7 +47,30 @@ public class CompositeOrderService {
         CompositeOrder order = CompositeOrder.create();
 
         for (var booking : request.bookings()) {
-            order.addBookingStep(booking.type(), booking.resourceId(), booking.price());
+            BigDecimal price = booking.price() != null ? booking.price() : BigDecimal.ZERO;
+            if (booking.type() == BookingType.HOTEL && booking.rooms() != null && !booking.rooms().isEmpty()) {
+                BigDecimal roomsTotal = booking.rooms().stream()
+                        .map(HotelRoomRequest::price)
+                        .filter(Objects::nonNull)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                if (price.compareTo(BigDecimal.ZERO) == 0) {
+                    price = roomsTotal;
+                }
+            }
+
+            var step = order.addBookingStep(booking.type(), booking.resourceId(), price);
+            if (booking.type() == BookingType.HOTEL && booking.rooms() != null && !booking.rooms().isEmpty()) {
+                for (var roomReq : booking.rooms()) {
+                    step.addRoom(
+                            roomReq.category(),
+                            roomReq.tariff(),
+                            roomReq.price(),
+                            roomReq.stayConditions()
+                    );
+                }
+                step.recalculatePriceFromRooms();
+                order.recalculatePricing();
+            }
         }
 
         if (request.passengers() != null) {
@@ -120,18 +145,70 @@ public class CompositeOrderService {
         if (hotelCount > 1 || insuranceCount > 1 || transferCount > 1) {
             throw new InvalidBookingDataException("Booking types must not contain duplicates");
         }
+
+        for (var booking : bookings) {
+            if (booking.type() != BookingType.HOTEL) {
+                if (booking.rooms() != null && !booking.rooms().isEmpty()) {
+                    throw new InvalidBookingDataException("Rooms can only be specified for HOTEL bookings");
+                }
+                if (booking.roomsCount() != null) {
+                    throw new InvalidBookingDataException("Rooms count can only be specified for HOTEL bookings");
+                }
+            } else {
+                if (booking.rooms() != null && !booking.rooms().isEmpty()) {
+                    if (booking.roomsCount() != null && !booking.roomsCount().equals(booking.rooms().size())) {
+                        throw new InvalidBookingDataException(
+                                "Rooms count (" + booking.roomsCount() + ") does not match provided rooms size (" + booking.rooms().size() + ")"
+                        );
+                    }
+                    BigDecimal roomsTotal = booking.rooms().stream()
+                            .map(HotelRoomRequest::price)
+                            .filter(Objects::nonNull)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                    if (booking.price() != null && booking.price().compareTo(BigDecimal.ZERO) > 0) {
+                        if (booking.price().compareTo(roomsTotal) != 0) {
+                            throw new InvalidBookingDataException(
+                                    "Step price (" + booking.price() + ") does not match total room price (" + roomsTotal + ")"
+                            );
+                        }
+                    }
+                } else if (booking.roomsCount() != null && booking.roomsCount() > 0) {
+                    throw new InvalidBookingDataException("Rooms parameters must be provided when roomsCount is specified");
+                }
+            }
+        }
     }
 
     private OrderResponse toResponse(CompositeOrder order) {
         var steps = order.getBookingSteps()
                 .stream()
-                .map(step -> new BookingStepResponse(
-                        step.getId(),
-                        step.getType(),
-                        step.getResourceId(),
-                        step.getStatus(),
-                        step.getExternalId(),
-                        step.getPrice()))
+                .map(step -> {
+                    Integer roomsCount = null;
+                    List<HotelRoomResponse> roomResponses = null;
+                    if (step.getType() == BookingType.HOTEL && !step.getRooms().isEmpty()) {
+                        roomsCount = step.getRooms().size();
+                        roomResponses = step.getRooms().stream()
+                                .map(r -> new HotelRoomResponse(
+                                        r.getId(),
+                                        r.getCategory(),
+                                        r.getTariff(),
+                                        r.getPrice(),
+                                        r.getStayConditions()
+                                ))
+                                .toList();
+                    }
+                    return new BookingStepResponse(
+                            step.getId(),
+                            step.getType(),
+                            step.getResourceId(),
+                            step.getStatus(),
+                            step.getExternalId(),
+                            step.getPrice(),
+                            roomsCount,
+                            roomResponses
+                    );
+                })
                 .toList();
 
         var passengers = order.getPassengers() != null

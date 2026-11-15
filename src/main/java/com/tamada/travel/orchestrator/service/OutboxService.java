@@ -21,6 +21,13 @@ import java.util.List;
 @Slf4j
 public class OutboxService {
 
+    public static final String AGGREGATE_TYPE_COMPOSITE_ORDER = "COMPOSITE_ORDER";
+    public static final String EVENT_ORDER_CREATED = "ORDER_CREATED";
+    public static final String EVENT_ORDER_PROCESSING = "ORDER_PROCESSING";
+    public static final String EVENT_ORDER_COMPLETED = "ORDER_COMPLETED";
+    public static final String EVENT_ORDER_CANCELLED = "ORDER_CANCELLED";
+    public static final String EVENT_ORDER_FAILED = "ORDER_FAILED";
+
     private final OutboxRepository outboxRepository;
     private final ObjectMapper objectMapper;
 
@@ -37,29 +44,54 @@ public class OutboxService {
 
     @Transactional
     public OutboxMessage saveOrderCreatedEvent(CompositeOrder order) {
+        return saveOrderLifecycleEvent(order, EVENT_ORDER_CREATED);
+    }
+
+    @Transactional
+    public OutboxMessage saveOrderProcessingEvent(CompositeOrder order) {
+        return saveOrderLifecycleEvent(order, EVENT_ORDER_PROCESSING);
+    }
+
+    @Transactional
+    public OutboxMessage saveOrderCompletedEvent(CompositeOrder order) {
+        return saveOrderLifecycleEvent(order, EVENT_ORDER_COMPLETED);
+    }
+
+    @Transactional
+    public OutboxMessage saveOrderCancelledEvent(CompositeOrder order) {
+        return saveOrderLifecycleEvent(order, EVENT_ORDER_CANCELLED);
+    }
+
+    @Transactional
+    public OutboxMessage saveOrderFailedEvent(CompositeOrder order) {
+        return saveOrderLifecycleEvent(order, EVENT_ORDER_FAILED);
+    }
+
+    @Transactional
+    public OutboxMessage saveOrderLifecycleEvent(CompositeOrder order, String eventType) {
         OrderCreatedOutboxPayload payload = buildPayload(order);
         String jsonPayload;
         try {
             jsonPayload = objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException e) {
-            log.error("Failed to serialize outbox payload for order {}", order.getId(), e);
+            log.error("Failed to serialize outbox payload for order {}, event {}", order.getId(), eventType, e);
             throw new IllegalStateException("Could not serialize outbox payload", e);
         }
 
         OutboxMessage message = new OutboxMessage(
-                "COMPOSITE_ORDER",
+                AGGREGATE_TYPE_COMPOSITE_ORDER,
                 order.getId().toString(),
-                "ORDER_CREATED",
+                eventType,
                 jsonPayload
         );
 
         OutboxMessage saved = outboxRepository.save(message);
-        log.info("Saved outbox message id={} for order={}", saved.getId(), order.getId());
+        log.info("Saved outbox message id={} event={} for order={}", saved.getId(), eventType, order.getId());
         return saved;
     }
 
     private OrderCreatedOutboxPayload buildPayload(CompositeOrder order) {
-        List<Passenger> passengers = order.getPassengers();
+        List<Passenger> passengers = order.getPassengers() != null ? order.getPassengers() : List.of();
 
         int adultsCount = (int) passengers.stream()
                 .filter(p -> p.getType() == PassengerType.ADULT)
@@ -99,11 +131,12 @@ public class OutboxService {
             );
         }
 
-        var selectedOptions = order.getBookingSteps().stream()
+        var steps = order.getBookingSteps() != null ? order.getBookingSteps() : List.<com.tamada.travel.orchestrator.model.BookingStep>of();
+        var selectedOptions = steps.stream()
                 .map(step -> {
                     Integer roomsCount = null;
                     List<OrderCreatedOutboxPayload.HotelRoomPayload> roomPayloads = null;
-                    if (step.getType() == com.tamada.travel.orchestrator.model.BookingType.HOTEL && !step.getRooms().isEmpty()) {
+                    if (step.getType() == com.tamada.travel.orchestrator.model.BookingType.HOTEL && step.getRooms() != null && !step.getRooms().isEmpty()) {
                         roomsCount = step.getRooms().size();
                         roomPayloads = step.getRooms().stream()
                                 .map(r -> new OrderCreatedOutboxPayload.HotelRoomPayload(

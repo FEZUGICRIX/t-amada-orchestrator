@@ -30,6 +30,10 @@ public class CompositeOrder {
     @UuidGenerator(style = VERSION_7)
     private UUID id;
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private OrderStatus status;

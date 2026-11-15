@@ -11,6 +11,9 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+    properties:
+      hibernate:
+        default_batch_fetch_size: 25
 
   flyway:
     enabled: true
@@ -27,6 +30,11 @@ services:
     base-url: ${SERVICES_TRANSFER_BASE_URL:http://localhost:3004}
   connect-timeout: 5s
   read-timeout: 10s
+  retry:
+    max-attempts: 3
+    initial-delay: 200ms
+    multiplier: 2.0
+    max-delay: 2s
 
 springdoc:
   swagger-ui:

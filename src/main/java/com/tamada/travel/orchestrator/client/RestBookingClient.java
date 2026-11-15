@@ -8,7 +8,9 @@ import com.tamada.travel.orchestrator.client.dto.ExternalServiceErrorResponse;
 import com.tamada.travel.orchestrator.exception.ExternalBookingErrorType;
 import com.tamada.travel.orchestrator.exception.ExternalBookingException;
 import com.tamada.travel.orchestrator.model.BookingType;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -50,6 +52,8 @@ public class RestBookingClient implements BookingClient {
                     .body(BookingResponse.class);
         } catch (RestClientResponseException exception) {
             throw mapException(exception, bookingPath);
+        } catch (ResourceAccessException exception) {
+            throw mapResourceAccessException(exception, bookingPath);
         }
     }
 
@@ -64,7 +68,23 @@ public class RestBookingClient implements BookingClient {
                     .body(CancelBookingResponse.class);
         } catch (RestClientResponseException exception) {
             throw mapException(exception, cancellationPath);
+        } catch (ResourceAccessException exception) {
+            throw mapResourceAccessException(exception, cancellationPath);
         }
+    }
+
+    private ExternalBookingException mapResourceAccessException(
+            ResourceAccessException exception,
+            String requestPath
+    ) {
+        return new ExternalBookingException(
+                HttpStatus.GATEWAY_TIMEOUT,
+                type,
+                ExternalBookingErrorType.SYSTEM_FAILURE,
+                "External service unavailable or timed out: " + exception.getMessage(),
+                requestPath,
+                exception
+        );
     }
 
     private ExternalBookingException mapException(
@@ -107,11 +127,13 @@ public class RestBookingClient implements BookingClient {
     }
 
     private ExternalBookingErrorType errorType(int statusCode) {
+        if (statusCode >= 500 && statusCode < 600) {
+            return ExternalBookingErrorType.SYSTEM_FAILURE;
+        }
         return switch (statusCode) {
             case 400 -> ExternalBookingErrorType.VALIDATION_ERROR;
             case 404 -> ExternalBookingErrorType.NOT_FOUND;
             case 409 -> ExternalBookingErrorType.RESOURCE_UNAVAILABLE;
-            case 500 -> ExternalBookingErrorType.SYSTEM_FAILURE;
             default -> ExternalBookingErrorType.UNKNOWN;
         };
     }

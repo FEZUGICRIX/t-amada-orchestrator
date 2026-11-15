@@ -1,11 +1,13 @@
 package com.tamada.travel.orchestrator.exception;
 
 import com.tamada.travel.orchestrator.dto.error.ErrorResponse;
+import jakarta.persistence.OptimisticLockException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -39,6 +41,48 @@ public class GlobalExceptionHandler {
     ) {
         return buildResponse(
                 HttpStatus.CONFLICT,
+                exception.getMessage(),
+                request.getRequestURI(),
+                null
+        );
+    }
+
+    @ExceptionHandler({
+            ObjectOptimisticLockingFailureException.class,
+            OptimisticLockException.class
+    })
+    public ResponseEntity<ErrorResponse> handleOptimisticLocking(
+            Exception exception,
+            HttpServletRequest request
+    ) {
+        log.warn("Optimistic locking conflict on request to {}: {}", request.getRequestURI(), exception.getMessage());
+        return buildResponse(
+                HttpStatus.CONFLICT,
+                "Concurrent modification conflict, please retry the operation",
+                request.getRequestURI(),
+                null
+        );
+    }
+
+    @ExceptionHandler(ExternalBookingException.class)
+    public ResponseEntity<ErrorResponse> handleExternalBookingException(
+            ExternalBookingException exception,
+            HttpServletRequest request
+    ) {
+        log.warn(
+                "External service failure: service={}, status={}, path={}, message={}",
+                exception.getService(),
+                exception.getHttpStatus(),
+                exception.getPath(),
+                exception.getMessage()
+        );
+
+        HttpStatus status = exception.getHttpStatus() instanceof HttpStatus s
+                ? s
+                : HttpStatus.INTERNAL_SERVER_ERROR;
+
+        return buildResponse(
+                status,
                 exception.getMessage(),
                 request.getRequestURI(),
                 null

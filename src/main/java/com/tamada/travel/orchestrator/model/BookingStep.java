@@ -31,6 +31,10 @@ public class BookingStep {
     @UuidGenerator(style = VERSION_7)
     private UUID id;
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "composite_order_id", nullable = false)
     private CompositeOrder compositeOrder;

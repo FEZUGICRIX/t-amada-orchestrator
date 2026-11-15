@@ -17,8 +17,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -30,6 +32,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
@@ -201,6 +204,67 @@ class RestBookingClientTest {
                 exception.getErrorType()
         );
         assertTrue(exception.isRetryable());
+    }
+
+    @Test
+    void shouldMapResourceAccessExceptionToSystemFailureOnBook() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BookingClient client = hotelClient(builder);
+        UUID resourceId = UUID.randomUUID();
+        UUID bookingReference = UUID.randomUUID();
+
+        server.expect(requestTo("http://localhost:3002/api/v1/hotel/book"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withException(new SocketTimeoutException("Read timed out")));
+
+        ExternalBookingException exception = assertThrows(
+                ExternalBookingException.class,
+                () -> client.book(new BookingRequest(resourceId, bookingReference))
+        );
+
+        assertEquals(HttpStatus.GATEWAY_TIMEOUT, exception.getHttpStatus());
+        assertEquals(ExternalBookingErrorType.SYSTEM_FAILURE, exception.getErrorType());
+        assertTrue(exception.isRetryable());
+        assertTrue(exception.getMessage().contains("timed out"));
+        assertEquals("/api/v1/hotel/book", exception.getPath());
+        server.verify();
+    }
+
+    @Test
+    void shouldMapResourceAccessExceptionToSystemFailureOnCancel() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BookingClient client = hotelClient(builder);
+        UUID bookingId = UUID.randomUUID();
+
+        server.expect(requestTo("http://localhost:3002/api/v1/hotel/cancel"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withException(new SocketTimeoutException("Connection refused")));
+
+        ExternalBookingException exception = assertThrows(
+                ExternalBookingException.class,
+                () -> client.cancel(new CancelBookingRequest(bookingId))
+        );
+
+        assertEquals(HttpStatus.GATEWAY_TIMEOUT, exception.getHttpStatus());
+        assertEquals(ExternalBookingErrorType.SYSTEM_FAILURE, exception.getErrorType());
+        assertTrue(exception.isRetryable());
+        assertTrue(exception.getMessage().contains("Connection refused"));
+        assertEquals("/api/v1/hotel/cancel", exception.getPath());
+        server.verify();
+    }
+
+    @Test
+    void shouldMap502And503And504AsRetryableSystemFailure() {
+        for (HttpStatus status : List.of(HttpStatus.BAD_GATEWAY, HttpStatus.SERVICE_UNAVAILABLE, HttpStatus.GATEWAY_TIMEOUT)) {
+            ExternalBookingException exception = executeErrorResponse(
+                    status,
+                    "\"Service temporary issue\""
+            );
+            assertEquals(ExternalBookingErrorType.SYSTEM_FAILURE, exception.getErrorType());
+            assertTrue(exception.isRetryable());
+        }
     }
 
     @Test

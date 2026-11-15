@@ -2,6 +2,8 @@ package com.tamada.travel.orchestrator.config;
 
 import com.tamada.travel.orchestrator.client.BookingClient;
 import com.tamada.travel.orchestrator.client.RestBookingClient;
+import com.tamada.travel.orchestrator.client.RetryingBookingClient;
+import com.tamada.travel.orchestrator.client.Sleeper;
 import com.tamada.travel.orchestrator.model.BookingType;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -38,51 +40,69 @@ public class BookingClientConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean
+    public Sleeper bookingClientSleeper() {
+        return Sleeper.DEFAULT;
+    }
+
+    @Bean
     public BookingClient flightBookingClient(
             RestClient.Builder builder,
-            BookingServicesProperties properties) {
+            BookingServicesProperties properties,
+            Sleeper sleeper) {
         return createClient(
                 BookingType.FLIGHT,
                 builder,
                 properties.flight().baseUrl(),
                 "/api/v1/flight/book",
-                "/api/v1/flight/cancel");
+                "/api/v1/flight/cancel",
+                properties,
+                sleeper);
     }
 
     @Bean
     public BookingClient hotelBookingClient(
             RestClient.Builder builder,
-            BookingServicesProperties properties) {
+            BookingServicesProperties properties,
+            Sleeper sleeper) {
         return createClient(
                 BookingType.HOTEL,
                 builder,
                 properties.hotel().baseUrl(),
                 "/api/v1/hotel/book",
-                "/api/v1/hotel/cancel");
+                "/api/v1/hotel/cancel",
+                properties,
+                sleeper);
     }
 
     @Bean
     public BookingClient insuranceBookingClient(
             RestClient.Builder builder,
-            BookingServicesProperties properties) {
+            BookingServicesProperties properties,
+            Sleeper sleeper) {
         return createClient(
                 BookingType.INSURANCE,
                 builder,
                 properties.insurance().baseUrl(),
                 "/api/v1/insurance/book",
-                "/api/v1/insurance/cancel");
+                "/api/v1/insurance/cancel",
+                properties,
+                sleeper);
     }
 
     @Bean
     public BookingClient transferBookingClient(
             RestClient.Builder builder,
-            BookingServicesProperties properties) {
+            BookingServicesProperties properties,
+            Sleeper sleeper) {
         return createClient(
                 BookingType.TRANSFER,
                 builder,
                 properties.transfer().baseUrl(),
                 "/api/v1/transfer/book",
-                "/api/v1/transfer/cancel");
+                "/api/v1/transfer/cancel",
+                properties,
+                sleeper);
     }
 
     private BookingClient createClient(
@@ -90,13 +110,16 @@ public class BookingClientConfiguration {
             RestClient.Builder builder,
             URI baseUrl,
             String bookingPath,
-            String cancellationPath) {
-        return new RestBookingClient(
+            String cancellationPath,
+            BookingServicesProperties properties,
+            Sleeper sleeper) {
+        BookingClient restClient = new RestBookingClient(
                 type,
                 builder.clone(),
                 normalizeBaseUrl(baseUrl),
                 bookingPath,
                 cancellationPath);
+        return new RetryingBookingClient(restClient, properties.retry(), sleeper);
     }
 
     private static URI normalizeBaseUrl(URI baseUrl) {

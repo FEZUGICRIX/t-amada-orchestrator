@@ -266,14 +266,15 @@ POST /api/v1/orders/{id}/cancel
 
 Классификация:
 
-| HTTP status | Тип                    | Retryable    |
-| ----------- | ---------------------- | ------------ |
-| 400         | `VALIDATION_ERROR`     | нет          |
-| 404         | `NOT_FOUND`            | нет          |
-| 409         | `RESOURCE_UNAVAILABLE` | нет          |
-| 500         | `SYSTEM_FAILURE`       | потенциально |
+| HTTP status / Ошибка | Тип                    | Retryable |
+| -------------------- | ---------------------- | --------- |
+| 400                  | `VALIDATION_ERROR`     | нет       |
+| 404                  | `NOT_FOUND`            | нет       |
+| 409                  | `RESOURCE_UNAVAILABLE` | нет       |
+| 500, 502, 503, 504   | `SYSTEM_FAILURE`       | да        |
+| Таймаут / Сеть       | `SYSTEM_FAILURE`       | да        |
 
-Retry в текущей версии не выполняется.
+Для retryable-ошибок (`SYSTEM_FAILURE`, сетевые сбои, таймауты и HTTP 5xx) выполняется автоматическая переотправка с настраиваемой экспоненциальной задержкой (`services.retry.max-attempts`, `initial-delay`, `multiplier`, `max-delay`). Неповторяемые бизнес-ошибки (400, 404, 409) сразу приводят к прерыванию шага и запуску сага-компенсации.
 
 Ошибки API Orchestrator возвращаются в едином формате:
 
@@ -369,7 +370,6 @@ Flyway migrations находятся в `src/main/resources/db/migration`.
 
 В текущей версии не реализованы:
 
-- retry;
 - circuit breaker;
 - асинхронная Saga;
 - Kafka;

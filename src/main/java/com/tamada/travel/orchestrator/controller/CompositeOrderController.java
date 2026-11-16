@@ -1,6 +1,7 @@
 package com.tamada.travel.orchestrator.controller;
 
 import com.tamada.travel.orchestrator.dto.CreateOrderRequest;
+import com.tamada.travel.orchestrator.dto.OrderOperationHistoryResponse;
 import com.tamada.travel.orchestrator.dto.OrderResponse;
 import com.tamada.travel.orchestrator.dto.error.ErrorResponse;
 import com.tamada.travel.orchestrator.service.CompositeOrderService;
@@ -14,8 +15,11 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -51,7 +55,7 @@ public class CompositeOrderController {
     @GetMapping("/{id}")
     @Operation(
             summary = "Получить информацию о заказе по ID",
-            description = "Возвращает текущее состояние заказа и всех входящих в него шагов бронирования."
+            description = "Возвращает текущее состояние заказа и всех входящих в него шагов бронирования, а также подробные сведения об ошибках и историю операций."
     )
     @ApiResponses({
             @ApiResponse(
@@ -70,10 +74,57 @@ public class CompositeOrderController {
         return service.getOrder(id);
     }
 
+    @GetMapping("/{id}/history")
+    @Operation(
+            summary = "Получить историю операций и неудачных попыток по заказу",
+            description = "Возвращает хронологическую историю всех операций заказа (создание, бронирование, сбои поставщиков, компенсации и причины отмены остальных услуг)."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "История операций заказа успешно получена"
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "Заказ с указанным ID не найден",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+            )
+    })
+    public List<OrderOperationHistoryResponse> getOrderHistory(
+            @Parameter(description = "Уникальный идентификатор заказа", example = "01a10131-40db-780d-8f1c-9a4b0789cfd3")
+            @PathVariable UUID id) {
+        return service.getOrderHistory(id);
+    }
+
+    @GetMapping(value = {"/{id}/events", "/{id}/stream", "/{id}/sse"}, produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(
+            summary = "Подписка на события заказа в реальном времени (Server-Sent Events / SSE)",
+            description = "Потоковая передача событий изменения статуса заказа, шагов бронирования, подробных ошибок поставщиков и причин компенсации остальных услуг."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Поток SSE-событий успешно установлен",
+                    content = @Content(mediaType = MediaType.TEXT_EVENT_STREAM_VALUE)
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "Заказ с указанным ID не найден",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+            )
+    })
+    public SseEmitter streamOrderEvents(
+            @Parameter(description = "Уникальный идентификатор заказа", example = "01a10131-40db-780d-8f1c-9a4b0789cfd3")
+            @PathVariable UUID id,
+            @Parameter(description = "Автоматически запустить бронирование заказа при подписке, если статус заказа NEW")
+            @RequestParam(required = false, defaultValue = "false") boolean start) {
+        return service.subscribeToOrderEvents(id, start);
+    }
+
     @PostMapping("/{id}/start")
     @Operation(
             summary = "Запустить процесс оркестрации бронирования (Saga)",
-            description = "Последовательно вызывает внешние сервисы бронирования. При сбое любого шага запускает обратную компенсацию уже выполненных броней."
+            description = "Последовательно вызывает внешние сервисы бронирования. При сбое любого шага фиксирует детальную ошибку поставщика, причину отмены остальных услуг и запускает обратную компенсацию."
     )
     @ApiResponses({
             @ApiResponse(
@@ -100,7 +151,7 @@ public class CompositeOrderController {
     @PostMapping("/{id}/cancel")
     @Operation(
             summary = "Отменить заказ и компенсировать выполненные брони",
-            description = "Переводит заказ в отмену и вызывает эндпоинты /cancel для всех подтвержденных шагов."
+            description = "Переводит заказ в отмену и вызывает эндпоинты /cancel для всех подтвержденных шагов с сохранением причин отмены в истории."
     )
     @ApiResponses({
             @ApiResponse(

@@ -40,11 +40,11 @@ public class CompositeOrder {
 
     @CreatedDate
     @Column(nullable = false, updatable = false)
-    private Instant createdAt;
+    private Instant createdAt = Instant.now();
 
     @LastModifiedDate
     @Column(nullable = false)
-    private Instant updatedAt;
+    private Instant updatedAt = Instant.now();
 
     @OneToMany(mappedBy = "compositeOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("createdAt ASC, id ASC")
@@ -56,6 +56,16 @@ public class CompositeOrder {
 
     @OneToOne(mappedBy = "compositeOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private CustomerContact customerContact;
+
+    @OneToMany(mappedBy = "compositeOrder", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("createdAt ASC, id ASC")
+    private List<OrderOperationHistory> operationHistory = new ArrayList<>();
+
+    @Column(name = "failure_reason", columnDefinition = "TEXT")
+    private String failureReason;
+
+    @Column(name = "user_message", columnDefinition = "TEXT")
+    private String userMessage;
 
     public static final BigDecimal SERVICE_FEE_RATE = new BigDecimal("0.0067");
 
@@ -69,6 +79,8 @@ public class CompositeOrder {
     private BigDecimal totalPrice = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
 
     protected CompositeOrder() {
+        this.createdAt = Instant.now();
+        this.updatedAt = Instant.now();
     }
 
     public static CompositeOrder create() {
@@ -137,6 +149,35 @@ public class CompositeOrder {
         }
     }
 
+    public OrderOperationHistory recordOperation(
+            BookingStep step,
+            BookingType type,
+            String operationType,
+            String status,
+            Integer httpStatus,
+            String errorCode,
+            String message,
+            String userMessage,
+            String details,
+            String cancellationReason
+    ) {
+        OrderOperationHistory history = new OrderOperationHistory(
+                this,
+                step,
+                type,
+                operationType,
+                status,
+                httpStatus,
+                errorCode,
+                message,
+                userMessage,
+                details,
+                cancellationReason
+        );
+        this.operationHistory.add(history);
+        return history;
+    }
+
     public void startProcessing() {
         if (status != OrderStatus.NEW) {
             throw new InvalidStateTransitionException(
@@ -164,15 +205,29 @@ public class CompositeOrder {
     }
 
     public void fail() {
+        fail(null, null);
+    }
+
+    public void fail(String failureReason, String userMessage) {
         if (status != OrderStatus.PROCESSING) {
             throw new InvalidStateTransitionException(
                     "Cannot fail order from status " + status);
         }
 
         this.status = OrderStatus.FAILED;
+        if (failureReason != null && !failureReason.isBlank()) {
+            this.failureReason = failureReason;
+        }
+        if (userMessage != null && !userMessage.isBlank()) {
+            this.userMessage = userMessage;
+        }
     }
 
     public void failCurrentBookingStep() {
+        failCurrentBookingStep(null, null, null, null);
+    }
+
+    public void failCurrentBookingStep(String errorCode, String errorMessage, String userMessage, String errorDetails) {
         if (status != OrderStatus.PROCESSING) {
             throw new InvalidStateTransitionException(
                     "Cannot fail booking step when order is in status " + status);
@@ -184,8 +239,8 @@ public class CompositeOrder {
                 .orElseThrow(() -> new InvalidStateTransitionException(
                         "Cannot fail booking step because no step is processing"));
 
-        currentStep.fail();
-        fail();
+        currentStep.fail(errorCode, errorMessage, userMessage, errorDetails);
+        fail(errorMessage, userMessage);
     }
 
     public void startCancelling() {
@@ -200,12 +255,22 @@ public class CompositeOrder {
     }
 
     public void cancel() {
+        cancel(null, null);
+    }
+
+    public void cancel(String reason, String userMessage) {
         if (status != OrderStatus.CANCELLING) {
             throw new InvalidStateTransitionException(
                     "Cannot cancel order from status " + status);
         }
 
         this.status = OrderStatus.CANCELLED;
+        if (reason != null && !reason.isBlank()) {
+            this.failureReason = reason;
+        }
+        if (userMessage != null && !userMessage.isBlank()) {
+            this.userMessage = userMessage;
+        }
     }
 
     /**

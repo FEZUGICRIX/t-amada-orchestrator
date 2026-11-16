@@ -380,6 +380,31 @@ class CompositeOrderControllerTest {
     }
 
     @Test
+    void shouldRejectOrderWithoutFlight() throws Exception {
+        when(service.createOrder(any()))
+                .thenThrow(
+                        new InvalidBookingDataException(
+                                "Flight booking is mandatory for composite order"));
+
+        mockMvc.perform(
+                post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "bookings": [
+                                    {
+                                      "type": "HOTEL",
+                                      "resourceId": "00000000-0000-0000-0000-000000000001"
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("Flight booking is mandatory for composite order"));
+    }
+
+    @Test
     void shouldGetOrder() throws Exception {
         UUID id = UUID.randomUUID();
 

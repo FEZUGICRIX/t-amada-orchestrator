@@ -9,6 +9,10 @@ public class ExternalBookingException extends RuntimeException {
     private final BookingType service;
     private final ExternalBookingErrorType errorType;
     private final String path;
+    private final String errorTitle;
+    private final String supplierTimestamp;
+    private final String supplierMessage;
+    private final String userFriendlyMessage;
 
     public ExternalBookingException(
             HttpStatusCode httpStatus,
@@ -18,11 +22,30 @@ public class ExternalBookingException extends RuntimeException {
             String path,
             Throwable cause
     ) {
+        this(httpStatus, service, errorType, message, path, null, null, null, null, cause);
+    }
+
+    public ExternalBookingException(
+            HttpStatusCode httpStatus,
+            BookingType service,
+            ExternalBookingErrorType errorType,
+            String message,
+            String path,
+            String errorTitle,
+            String supplierTimestamp,
+            String supplierMessage,
+            String userFriendlyMessage,
+            Throwable cause
+    ) {
         super(message, cause);
         this.httpStatus = httpStatus;
         this.service = service;
         this.errorType = errorType;
         this.path = path;
+        this.errorTitle = errorTitle;
+        this.supplierTimestamp = supplierTimestamp;
+        this.supplierMessage = supplierMessage != null ? supplierMessage : message;
+        this.userFriendlyMessage = userFriendlyMessage;
     }
 
     public HttpStatusCode getHttpStatus() {
@@ -39,6 +62,22 @@ public class ExternalBookingException extends RuntimeException {
 
     public String getPath() {
         return path;
+    }
+
+    public String getErrorTitle() {
+        return errorTitle;
+    }
+
+    public String getSupplierTimestamp() {
+        return supplierTimestamp;
+    }
+
+    public String getSupplierMessage() {
+        return supplierMessage;
+    }
+
+    public String getUserFriendlyMessage() {
+        return userFriendlyMessage;
     }
 
     public boolean isRetryable() {

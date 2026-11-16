@@ -8,6 +8,7 @@ import com.tamada.travel.orchestrator.client.dto.ExternalServiceErrorResponse;
 import com.tamada.travel.orchestrator.exception.ExternalBookingErrorType;
 import com.tamada.travel.orchestrator.exception.ExternalBookingException;
 import com.tamada.travel.orchestrator.model.BookingType;
+import com.tamada.travel.orchestrator.service.error.UserErrorMessageResolver;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.ResourceAccessException;
@@ -15,6 +16,8 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.net.URI;
+import java.time.Instant;
+import java.util.Objects;
 
 public class RestBookingClient implements BookingClient {
 
@@ -22,6 +25,7 @@ public class RestBookingClient implements BookingClient {
     private final RestClient restClient;
     private final String bookingPath;
     private final String cancellationPath;
+    private final UserErrorMessageResolver errorMessageResolver;
 
     public RestBookingClient(
             BookingType type,
@@ -30,10 +34,22 @@ public class RestBookingClient implements BookingClient {
             String bookingPath,
             String cancellationPath
     ) {
+        this(type, builder, baseUrl, bookingPath, cancellationPath, new UserErrorMessageResolver());
+    }
+
+    public RestBookingClient(
+            BookingType type,
+            RestClient.Builder builder,
+            URI baseUrl,
+            String bookingPath,
+            String cancellationPath,
+            UserErrorMessageResolver errorMessageResolver
+    ) {
         this.type = type;
         this.restClient = builder.baseUrl(baseUrl).build();
         this.bookingPath = bookingPath;
         this.cancellationPath = cancellationPath;
+        this.errorMessageResolver = errorMessageResolver != null ? errorMessageResolver : new UserErrorMessageResolver();
     }
 
     @Override
@@ -77,12 +93,23 @@ public class RestBookingClient implements BookingClient {
             ResourceAccessException exception,
             String requestPath
     ) {
+        String userFriendlyMessage = errorMessageResolver.resolveBookingErrorMessage(
+                type,
+                ExternalBookingErrorType.SYSTEM_FAILURE,
+                HttpStatus.GATEWAY_TIMEOUT.value(),
+                exception.getMessage()
+        );
+
         return new ExternalBookingException(
                 HttpStatus.GATEWAY_TIMEOUT,
                 type,
                 ExternalBookingErrorType.SYSTEM_FAILURE,
                 "External service unavailable or timed out: " + exception.getMessage(),
                 requestPath,
+                "Gateway Timeout",
+                Instant.now().toString(),
+                exception.getMessage(),
+                userFriendlyMessage,
                 exception
         );
     }
@@ -106,12 +133,32 @@ public class RestBookingClient implements BookingClient {
             message = "External service error (" + exception.getStatusCode().value() + ")";
         }
 
+        String errorTitle = (errorResponse != null && errorResponse.error() != null && !errorResponse.error().isBlank())
+                ? errorResponse.error()
+                : exception.getStatusText();
+
+        String supplierTimestamp = (errorResponse != null && errorResponse.timestamp() != null)
+                ? String.valueOf(errorResponse.timestamp())
+                : Instant.now().toString();
+
+        ExternalBookingErrorType errType = errorType(exception.getStatusCode().value());
+        String userFriendlyMessage = errorMessageResolver.resolveBookingErrorMessage(
+                type,
+                errType,
+                exception.getStatusCode().value(),
+                message
+        );
+
         return new ExternalBookingException(
                 exception.getStatusCode(),
                 type,
-                errorType(exception.getStatusCode().value()),
+                errType,
                 message,
                 path,
+                errorTitle,
+                supplierTimestamp,
+                message,
+                userFriendlyMessage,
                 exception
         );
     }

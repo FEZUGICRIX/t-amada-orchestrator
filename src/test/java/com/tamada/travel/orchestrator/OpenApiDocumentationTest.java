@@ -28,8 +28,12 @@ class OpenApiDocumentationTest {
                 .andExpect(jsonPath("$.paths['/api/v1/orders'].post.responses['400']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/orders/{id}'].get.responses['404']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/start'].post.responses['409']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/history'].get.responses['200']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/events'].get.responses['200']").exists())
                 .andExpect(jsonPath("$.components.schemas['CreateOrderRequest']").exists())
                 .andExpect(jsonPath("$.components.schemas['OrderResponse']").exists())
+                .andExpect(jsonPath("$.components.schemas['OrderOperationHistoryResponse']").exists())
+                .andExpect(jsonPath("$.components.schemas['StepErrorDetailsResponse']").exists())
                 .andExpect(jsonPath("$.components.schemas['ErrorResponse']").exists());
     }
 

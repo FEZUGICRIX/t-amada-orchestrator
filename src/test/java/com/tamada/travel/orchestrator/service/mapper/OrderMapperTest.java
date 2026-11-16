@@ -77,4 +77,64 @@ class OrderMapperTest {
         assertEquals(1, hotelResponse.rooms().size());
         assertEquals("Люкс", hotelResponse.rooms().get(0).category());
     }
+
+    @Test
+    void shouldMapErrorDetailsAndOperationHistory() {
+        UUID orderId = UUID.randomUUID();
+        CompositeOrder order = CompositeOrder.create();
+        ReflectionTestUtils.setField(order, "id", orderId);
+        order.startProcessing();
+
+        var step = order.addBookingStep(BookingType.HOTEL, UUID.randomUUID(), new BigDecimal("10000.00"));
+        UUID stepId = UUID.randomUUID();
+        ReflectionTestUtils.setField(step, "id", stepId);
+        step.startProcessing();
+
+        String errorDetailsJson = """
+                {"statusCode":409,"error":"Conflict","message":"Resource is unavailable","path":"/api/v1/hotel/book","timestamp":"2026-10-18T10:00:00Z"}
+                """;
+        step.fail("RESOURCE_UNAVAILABLE", "Resource is unavailable", "Номер в отеле недоступен", errorDetailsJson);
+        order.fail("Booking failed", "Заказ не может быть выполнен");
+
+        order.recordOperation(
+                step,
+                BookingType.HOTEL,
+                "BOOK",
+                "FAILED",
+                409,
+                "RESOURCE_UNAVAILABLE",
+                "Resource is unavailable",
+                "Номер в отеле недоступен",
+                errorDetailsJson,
+                null
+        );
+
+        OrderResponse response = mapper.toResponse(order);
+
+        assertNotNull(response);
+        assertEquals(OrderStatus.FAILED, response.status());
+        assertEquals("Booking failed", response.failureReason());
+        assertEquals("Заказ не может быть выполнен", response.userMessage());
+        assertEquals(1, response.operationHistory().size());
+
+        var historyItem = response.operationHistory().get(0);
+        assertEquals("BOOK", historyItem.operationType());
+        assertEquals("FAILED", historyItem.status());
+        assertEquals(409, historyItem.httpStatus());
+        assertEquals("RESOURCE_UNAVAILABLE", historyItem.errorCode());
+        assertEquals("Resource is unavailable", historyItem.message());
+        assertEquals("Номер в отеле недоступен", historyItem.userMessage());
+        assertNotNull(historyItem.errorDetails());
+        assertEquals(409, historyItem.errorDetails().statusCode());
+        assertEquals("Conflict", historyItem.errorDetails().error());
+        assertEquals("/api/v1/hotel/book", historyItem.errorDetails().path());
+
+        var stepResponse = response.bookingSteps().get(0);
+        assertEquals(BookingStatus.FAILED, stepResponse.status());
+        assertEquals("RESOURCE_UNAVAILABLE", stepResponse.errorCode());
+        assertEquals("Resource is unavailable", stepResponse.errorMessage());
+        assertEquals("Номер в отеле недоступен", stepResponse.userMessage());
+        assertNotNull(stepResponse.errorDetails());
+        assertEquals(409, stepResponse.errorDetails().statusCode());
+    }
 }

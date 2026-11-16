@@ -274,12 +274,30 @@ Content-Type: application/json
 }
 
 
+### 7.1. Заказ без обязательного авиабилета
+POST {{baseUrl}}/api/v1/orders
+Content-Type: application/json
+
+{
+  "bookings": [
+    {
+      "type": "HOTEL",
+      "resourceId": "{{hotelResourceId}}"
+    }
+  ]
+}
+
+
 ### 8. Дублирующийся тип бронирования
 POST {{baseUrl}}/api/v1/orders
 Content-Type: application/json
 
 {
   "bookings": [
+    {
+      "type": "FLIGHT",
+      "resourceId": "{{flightResourceId}}"
+    },
     {
       "type": "HOTEL",
       "resourceId": "{{hotelResourceId}}"
@@ -371,3 +389,22 @@ POST {{baseUrl}}/api/v1/orders/{{orderId}}/start
 
 ### 16. Отменить заказ
 POST {{baseUrl}}/api/v1/orders/{{orderId}}/cancel
+
+
+### =========================
+### HISTORY & SSE TESTS
+### =========================
+
+### 17. Получить историю операций и сбоев по заказу
+GET {{baseUrl}}/api/v1/orders/{{orderId}}/history
+
+
+### 18. Подписаться на события заказа в реальном времени (SSE)
+GET {{baseUrl}}/api/v1/orders/{{orderId}}/events
+Accept: text/event-stream
+
+
+### 19. Подписаться на SSE с одновременным запуском бронирования
+GET {{baseUrl}}/api/v1/orders/{{orderId}}/events?start=true
+Accept: text/event-stream
+

@@ -1,5 +1,6 @@
 package com.tamada.travel.orchestrator.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.tamada.travel.orchestrator.model.OrderStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Schema(description = "Информация о составном заказе путешествия")
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record OrderResponse(
         @Schema(description = "Уникальный идентификатор заказа", example = "01a10131-40db-780d-8f1c-9a4b0789cfd3")
         UUID id,
@@ -42,7 +44,16 @@ public record OrderResponse(
 
         @Schema(description = "Контакты заказчика")
         @JsonProperty("customerContact")
-        CustomerContactResponse customerContact
+        CustomerContactResponse customerContact,
+
+        @Schema(description = "Причина сбоя или отмены заказа", example = "Заказ отменен из-за ошибки бронирования шага HOTEL: Resource is unavailable")
+        String failureReason,
+
+        @Schema(description = "Понятное пользователю сообщение об ошибке или отмене заказа", example = "Заказ не может быть выполнен: выбранный отель недоступен. Ранее забронированные услуги отменены.")
+        String userMessage,
+
+        @Schema(description = "История операций, сбоев и отмен по заказу")
+        List<OrderOperationHistoryResponse> operationHistory
 ) {
     public OrderResponse(
             UUID id,
@@ -74,6 +85,35 @@ public record OrderResponse(
                 bookingSteps,
                 passengers,
                 customerContact
+        );
+    }
+
+    public OrderResponse(
+            UUID id,
+            OrderStatus status,
+            Instant createdAt,
+            Instant updatedAt,
+            BigDecimal basePrice,
+            BigDecimal serviceFee,
+            BigDecimal totalPrice,
+            List<BookingStepResponse> bookingSteps,
+            List<PassengerResponse> passengers,
+            CustomerContactResponse customerContact
+    ) {
+        this(
+                id,
+                status,
+                createdAt,
+                updatedAt,
+                basePrice,
+                serviceFee,
+                totalPrice,
+                bookingSteps,
+                passengers,
+                customerContact,
+                null,
+                null,
+                List.of()
         );
     }
 }

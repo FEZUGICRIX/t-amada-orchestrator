@@ -59,13 +59,28 @@ public class BookingStep {
     @OrderBy("createdAt ASC, id ASC")
     private List<HotelRoom> rooms = new ArrayList<>();
 
+    @Column(name = "error_code")
+    private String errorCode;
+
+    @Column(name = "error_message", columnDefinition = "TEXT")
+    private String errorMessage;
+
+    @Column(name = "user_message", columnDefinition = "TEXT")
+    private String userMessage;
+
+    @Column(name = "error_details", columnDefinition = "TEXT")
+    private String errorDetails;
+
+    @Column(name = "cancellation_reason", columnDefinition = "TEXT")
+    private String cancellationReason;
+
     @CreatedDate
     @Column(nullable = false, updatable = false)
-    private Instant createdAt;
+    private Instant createdAt = Instant.now();
 
     @LastModifiedDate
     @Column(nullable = false)
-    private Instant updatedAt;
+    private Instant updatedAt = Instant.now();
 
     public BookingStep(
             CompositeOrder compositeOrder,
@@ -91,6 +106,8 @@ public class BookingStep {
                 ? price.setScale(2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         this.status = BookingStatus.PENDING;
+        this.createdAt = Instant.now();
+        this.updatedAt = Instant.now();
     }
 
     public void addRoom(String category, String tariff, BigDecimal roomPrice, String stayConditions) {
@@ -143,6 +160,10 @@ public class BookingStep {
     }
 
     public void fail() {
+        fail(null, null, null, null);
+    }
+
+    public void fail(String errorCode, String errorMessage, String userMessage, String errorDetails) {
         if (status != BookingStatus.PROCESSING) {
             throw new InvalidStateTransitionException(
                     "Cannot fail booking step from status " + status
@@ -150,9 +171,17 @@ public class BookingStep {
         }
 
         this.status = BookingStatus.FAILED;
+        this.errorCode = errorCode;
+        this.errorMessage = errorMessage;
+        this.userMessage = userMessage;
+        this.errorDetails = errorDetails;
     }
 
     public void startCancelling() {
+        startCancelling(null);
+    }
+
+    public void startCancelling(String reason) {
         if (status != BookingStatus.CONFIRMED) {
             throw new InvalidStateTransitionException(
                     "Cannot start cancellation from status " + status
@@ -160,9 +189,16 @@ public class BookingStep {
         }
 
         this.status = BookingStatus.CANCELLING;
+        if (reason != null && !reason.isBlank()) {
+            this.cancellationReason = reason;
+        }
     }
 
     public void cancel() {
+        cancel(null, null);
+    }
+
+    public void cancel(String reason, String userMessage) {
         if (status != BookingStatus.CANCELLING) {
             throw new InvalidStateTransitionException(
                     "Cannot cancel booking step from status " + status
@@ -170,5 +206,20 @@ public class BookingStep {
         }
 
         this.status = BookingStatus.CANCELLED;
+        if (reason != null && !reason.isBlank()) {
+            this.cancellationReason = reason;
+        }
+        if (userMessage != null && !userMessage.isBlank()) {
+            this.userMessage = userMessage;
+        }
+    }
+
+    public void markSkipped(String reason, String userMessage) {
+        if (reason != null && !reason.isBlank()) {
+            this.cancellationReason = reason;
+        }
+        if (userMessage != null && !userMessage.isBlank()) {
+            this.userMessage = userMessage;
+        }
     }
 }

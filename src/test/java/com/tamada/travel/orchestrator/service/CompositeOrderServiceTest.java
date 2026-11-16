@@ -202,9 +202,24 @@ class CompositeOrderServiceTest {
         CreateOrderRequest request = new CreateOrderRequest(
                 List.of(
                         new CreateBookingStepRequest(
+                                BookingType.FLIGHT, UUID.randomUUID()),
+                        new CreateBookingStepRequest(
                                 BookingType.HOTEL, UUID.randomUUID()),
                         new CreateBookingStepRequest(
                                 BookingType.HOTEL, UUID.randomUUID())));
+
+        assertThrows(
+                InvalidBookingDataException.class,
+                () -> service.createOrder(request));
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void shouldRejectOrderWithoutFlight() {
+        CreateOrderRequest request = new CreateOrderRequest(
+                List.of(new CreateBookingStepRequest(BookingType.HOTEL, UUID.randomUUID()))
+        );
 
         assertThrows(
                 InvalidBookingDataException.class,
@@ -331,7 +346,13 @@ class CompositeOrderServiceTest {
                 rooms
         );
 
-        CreateOrderRequest request = new CreateOrderRequest(List.of(hotelStepReq));
+        CreateBookingStepRequest flightStep = new CreateBookingStepRequest(
+                BookingType.FLIGHT,
+                UUID.randomUUID(),
+                BigDecimal.ZERO
+        );
+
+        CreateOrderRequest request = new CreateOrderRequest(List.of(flightStep, hotelStepReq));
 
         when(repository.save(any(CompositeOrder.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -339,9 +360,9 @@ class CompositeOrderServiceTest {
         OrderResponse response = service.createOrder(request);
 
         assertEquals(OrderStatus.NEW, response.status());
-        assertEquals(1, response.bookingSteps().size());
+        assertEquals(2, response.bookingSteps().size());
 
-        var stepResponse = response.bookingSteps().get(0);
+        var stepResponse = response.bookingSteps().get(1);
         assertEquals(BookingType.HOTEL, stepResponse.type());
         assertEquals(hotelId, stepResponse.resourceId());
         assertEquals(new BigDecimal("20000.00"), stepResponse.price());
@@ -372,6 +393,10 @@ class CompositeOrderServiceTest {
 
     @Test
     void shouldRejectWhenRoomsCountDoesNotMatchRoomsSize() {
+        CreateBookingStepRequest flightStep = new CreateBookingStepRequest(
+                BookingType.FLIGHT,
+                UUID.randomUUID()
+        );
         CreateBookingStepRequest hotelStepReq = new CreateBookingStepRequest(
                 BookingType.HOTEL,
                 UUID.randomUUID(),
@@ -383,7 +408,7 @@ class CompositeOrderServiceTest {
                 )
         );
 
-        CreateOrderRequest request = new CreateOrderRequest(List.of(hotelStepReq));
+        CreateOrderRequest request = new CreateOrderRequest(List.of(flightStep, hotelStepReq));
 
         assertThrows(
                 InvalidBookingDataException.class,
@@ -393,6 +418,10 @@ class CompositeOrderServiceTest {
 
     @Test
     void shouldRejectWhenRoomsCountSpecifiedWithoutRooms() {
+        CreateBookingStepRequest flightStep = new CreateBookingStepRequest(
+                BookingType.FLIGHT,
+                UUID.randomUUID()
+        );
         CreateBookingStepRequest hotelStepReq = new CreateBookingStepRequest(
                 BookingType.HOTEL,
                 UUID.randomUUID(),
@@ -401,7 +430,7 @@ class CompositeOrderServiceTest {
                 null
         );
 
-        CreateOrderRequest request = new CreateOrderRequest(List.of(hotelStepReq));
+        CreateOrderRequest request = new CreateOrderRequest(List.of(flightStep, hotelStepReq));
 
         assertThrows(
                 InvalidBookingDataException.class,
@@ -429,6 +458,10 @@ class CompositeOrderServiceTest {
 
     @Test
     void shouldRejectWhenStepPriceDoesNotMatchTotalRoomsPrice() {
+        CreateBookingStepRequest flightStep = new CreateBookingStepRequest(
+                BookingType.FLIGHT,
+                UUID.randomUUID()
+        );
         CreateBookingStepRequest hotelStepReq = new CreateBookingStepRequest(
                 BookingType.HOTEL,
                 UUID.randomUUID(),
@@ -440,7 +473,7 @@ class CompositeOrderServiceTest {
                 )
         );
 
-        CreateOrderRequest request = new CreateOrderRequest(List.of(hotelStepReq));
+        CreateOrderRequest request = new CreateOrderRequest(List.of(flightStep, hotelStepReq));
 
         assertThrows(
                 InvalidBookingDataException.class,

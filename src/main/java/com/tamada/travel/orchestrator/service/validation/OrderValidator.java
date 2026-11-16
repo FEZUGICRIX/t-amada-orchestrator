@@ -34,6 +34,9 @@ public class OrderValidator {
         long insuranceCount = bookings.stream().filter(b -> b.type() == BookingType.INSURANCE).count();
         long transferCount = bookings.stream().filter(b -> b.type() == BookingType.TRANSFER).count();
 
+        if (flightCount == 0) {
+            throw new InvalidBookingDataException("Flight booking is mandatory for composite order");
+        }
         if (flightCount > 2) {
             throw new InvalidBookingDataException("Booking types must not contain duplicates");
         }

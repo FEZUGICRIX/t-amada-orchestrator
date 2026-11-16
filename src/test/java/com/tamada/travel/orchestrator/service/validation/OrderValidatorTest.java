@@ -82,8 +82,22 @@ class OrderValidatorTest {
     }
 
     @Test
+    void shouldRejectOrderWithoutFlight() {
+        List<CreateBookingStepRequest> bookings = List.of(
+                new CreateBookingStepRequest(BookingType.HOTEL, UUID.randomUUID())
+        );
+
+        InvalidBookingDataException ex = assertThrows(
+                InvalidBookingDataException.class,
+                () -> validator.validateBookings(bookings)
+        );
+        assertTrue(ex.getMessage().contains("Flight booking is mandatory"));
+    }
+
+    @Test
     void shouldRejectDuplicateHotelType() {
         List<CreateBookingStepRequest> bookings = List.of(
+                new CreateBookingStepRequest(BookingType.FLIGHT, UUID.randomUUID()),
                 new CreateBookingStepRequest(BookingType.HOTEL, UUID.randomUUID()),
                 new CreateBookingStepRequest(BookingType.HOTEL, UUID.randomUUID())
         );
@@ -94,6 +108,7 @@ class OrderValidatorTest {
     @Test
     void shouldRejectDuplicateInsuranceType() {
         List<CreateBookingStepRequest> bookings = List.of(
+                new CreateBookingStepRequest(BookingType.FLIGHT, UUID.randomUUID()),
                 new CreateBookingStepRequest(BookingType.INSURANCE, UUID.randomUUID()),
                 new CreateBookingStepRequest(BookingType.INSURANCE, UUID.randomUUID())
         );
@@ -104,6 +119,7 @@ class OrderValidatorTest {
     @Test
     void shouldRejectDuplicateTransferType() {
         List<CreateBookingStepRequest> bookings = List.of(
+                new CreateBookingStepRequest(BookingType.FLIGHT, UUID.randomUUID()),
                 new CreateBookingStepRequest(BookingType.TRANSFER, UUID.randomUUID()),
                 new CreateBookingStepRequest(BookingType.TRANSFER, UUID.randomUUID())
         );
@@ -133,6 +149,7 @@ class OrderValidatorTest {
     @Test
     void shouldRejectRoomsCountMismatch() {
         List<CreateBookingStepRequest> bookings = List.of(
+                new CreateBookingStepRequest(BookingType.FLIGHT, UUID.randomUUID()),
                 new CreateBookingStepRequest(
                         BookingType.HOTEL,
                         UUID.randomUUID(),
@@ -155,6 +172,7 @@ class OrderValidatorTest {
     @Test
     void shouldRejectRoomsPriceMismatch() {
         List<CreateBookingStepRequest> bookings = List.of(
+                new CreateBookingStepRequest(BookingType.FLIGHT, UUID.randomUUID()),
                 new CreateBookingStepRequest(
                         BookingType.HOTEL,
                         UUID.randomUUID(),

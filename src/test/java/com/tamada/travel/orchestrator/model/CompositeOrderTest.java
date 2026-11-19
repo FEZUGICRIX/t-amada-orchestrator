@@ -476,6 +476,31 @@ class CompositeOrderTest {
                 order::startProcessing);
     }
 
+    @Test
+    void shouldResetProcessingStepsToPending() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
+        order.startProcessing();
+
+        BookingStep step1 = order.startNextBookingStep().orElseThrow();
+        step1.confirm("ext-1");
+
+        BookingStep step2 = order.startNextBookingStep().orElseThrow();
+        assertEquals(BookingStatus.PROCESSING, step2.getStatus());
+
+        order.resetProcessingStepsToPending();
+
+        assertEquals(BookingStatus.CONFIRMED, step1.getStatus());
+        assertEquals(BookingStatus.PENDING, step2.getStatus());
+    }
+
+    @Test
+    void shouldRejectResetProcessingStepsWhenOrderNotProcessing() {
+        CompositeOrder order = CompositeOrder.create();
+        assertThrows(InvalidStateTransitionException.class, order::resetProcessingStepsToPending);
+    }
+
     private static class RecordingBookingStep extends BookingStep {
 
         private final List<BookingType> compensationOrder;

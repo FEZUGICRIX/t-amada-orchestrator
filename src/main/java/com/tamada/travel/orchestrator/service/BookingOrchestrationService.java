@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tamada.travel.orchestrator.client.BookingClientRegistry;
 import com.tamada.travel.orchestrator.dto.error.StepErrorDetailsResponse;
 import com.tamada.travel.orchestrator.exception.ExternalBookingException;
+import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import com.tamada.travel.orchestrator.exception.OrderNotFoundException;
 import com.tamada.travel.orchestrator.model.BookingStatus;
 import com.tamada.travel.orchestrator.model.BookingStep;
@@ -97,6 +98,10 @@ public class BookingOrchestrationService {
         return executionLock.executeWithLock(orderId, () -> executeSaga(orderId));
     }
 
+    public CompositeOrder recover(UUID orderId) {
+        return executionLock.executeWithLock(orderId, () -> executeSaga(orderId));
+    }
+
     public CompositeOrder cancel(UUID orderId) {
         return executionLock.executeWithLock(orderId, () -> compensator.cancelConfirmedSteps(
                 orderId,
@@ -110,19 +115,39 @@ public class BookingOrchestrationService {
     private CompositeOrder executeSaga(UUID orderId) {
         inTransaction(() -> {
             CompositeOrder order = findOrder(orderId);
-            order.startProcessing();
-            order.recordOperation(
-                    null,
-                    null,
-                    "ORDER_PROCESSING",
-                    "PROCESSING",
-                    null,
-                    null,
-                    null,
-                    "Начало процесса бронирования услуг заказа.",
-                    null,
-                    null
-            );
+            if (order.getStatus() == OrderStatus.NEW) {
+                order.startProcessing();
+                order.recordOperation(
+                        null,
+                        null,
+                        "ORDER_PROCESSING",
+                        "PROCESSING",
+                        null,
+                        null,
+                        null,
+                        "Начало процесса бронирования услуг заказа.",
+                        null,
+                        null
+                );
+            } else if (order.getStatus() == OrderStatus.PROCESSING) {
+                order.resetProcessingStepsToPending();
+                order.recordOperation(
+                        null,
+                        null,
+                        "ORDER_RECOVERY",
+                        "PROCESSING",
+                        null,
+                        null,
+                        null,
+                        "Возобновление процесса бронирования зависшего заказа.",
+                        null,
+                        null
+                );
+            } else {
+                throw new InvalidStateTransitionException(
+                        "Cannot start or resume order processing from status " + order.getStatus()
+                );
+            }
             return true;
         });
 

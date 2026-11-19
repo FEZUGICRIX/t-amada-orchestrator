@@ -315,6 +315,19 @@ public class CompositeOrder {
         }
     }
 
+    public void resetProcessingStepsToPending() {
+        if (status != OrderStatus.PROCESSING) {
+            throw new InvalidStateTransitionException(
+                    "Cannot reset steps for order in status " + status);
+        }
+
+        for (BookingStep step : bookingSteps) {
+            if (step.getStatus() == BookingStatus.PROCESSING) {
+                step.resetToPending();
+            }
+        }
+    }
+
     public Optional<BookingStep> startNextBookingStep() {
         if (status != OrderStatus.PROCESSING) {
             return Optional.empty();

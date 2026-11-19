@@ -265,4 +265,24 @@ class BookingStepTest {
                 () -> hotelStep.addRoom("Category", "Tariff", new BigDecimal("-100.00"), null)
         );
     }
+
+    @Test
+    void shouldResetToPendingFromProcessing() {
+        BookingStep step = createStep();
+        step.startProcessing();
+        assertEquals(BookingStatus.PROCESSING, step.getStatus());
+
+        step.resetToPending();
+        assertEquals(BookingStatus.PENDING, step.getStatus());
+    }
+
+    @Test
+    void shouldRejectResetToPendingFromOtherStatuses() {
+        BookingStep step = createStep();
+        assertThrows(InvalidStateTransitionException.class, step::resetToPending);
+
+        step.startProcessing();
+        step.confirm("flight-123");
+        assertThrows(InvalidStateTransitionException.class, step::resetToPending);
+    }
 }

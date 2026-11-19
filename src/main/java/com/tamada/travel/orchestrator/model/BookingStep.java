@@ -142,6 +142,16 @@ public class BookingStep {
         this.status = BookingStatus.PROCESSING;
     }
 
+    public void resetToPending() {
+        if (status != BookingStatus.PROCESSING) {
+            throw new InvalidStateTransitionException(
+                    "Cannot reset booking step to PENDING from status " + status
+            );
+        }
+
+        this.status = BookingStatus.PENDING;
+    }
+
     public void confirm(String externalId) {
         if (status != BookingStatus.PROCESSING) {
             throw new InvalidStateTransitionException(

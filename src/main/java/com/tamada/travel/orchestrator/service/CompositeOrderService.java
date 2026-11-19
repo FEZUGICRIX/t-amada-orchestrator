@@ -218,6 +218,18 @@ public class CompositeOrderService {
         return orderMapper.toResponse(order);
     }
 
+    public OrderResponse recoverOrder(UUID id) {
+        CompositeOrder order = orchestrationService.recover(id);
+        if (outboxService != null) {
+            if (order.getStatus() == OrderStatus.COMPLETED) {
+                outboxService.saveOrderCompletedEvent(order);
+            } else if (order.getStatus() == OrderStatus.CANCELLED) {
+                outboxService.saveOrderCancelledEvent(order);
+            }
+        }
+        return orderMapper.toResponse(order);
+    }
+
     public OrderResponse cancelOrder(UUID id) {
         CompositeOrder order = orchestrationService.cancel(id);
         if (outboxService != null && order.getStatus() == OrderStatus.CANCELLED) {

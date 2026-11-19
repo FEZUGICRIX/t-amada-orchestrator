@@ -22,3 +22,10 @@ services:
     base-url: http://localhost:3003
   transfer:
     base-url: http://localhost:3004
+
+saga:
+  recovery:
+    enabled: true
+    stuck-threshold: 2m
+    fixed-delay: 60s
+    initial-delay: 60s

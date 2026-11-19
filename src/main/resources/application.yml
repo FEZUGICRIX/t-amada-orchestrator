@@ -36,6 +36,13 @@ services:
     multiplier: 2.0
     max-delay: 2s
 
+saga:
+  recovery:
+    enabled: true
+    stuck-threshold: 2m
+    fixed-delay: 60s
+    initial-delay: 60s
+
 springdoc:
   swagger-ui:
     path: /swagger-ui.html

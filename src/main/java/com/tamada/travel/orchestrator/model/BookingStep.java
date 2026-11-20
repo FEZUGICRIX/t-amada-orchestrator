@@ -192,7 +192,7 @@ public class BookingStep {
     }
 
     public void startCancelling(String reason) {
-        if (status != BookingStatus.CONFIRMED) {
+        if (status != BookingStatus.CONFIRMED && status != BookingStatus.CANCELLING) {
             throw new InvalidStateTransitionException(
                     "Cannot start cancellation from status " + status
             );

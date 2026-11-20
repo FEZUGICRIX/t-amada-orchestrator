@@ -15,6 +15,7 @@ import com.tamada.travel.orchestrator.model.BookingStatus;
 import com.tamada.travel.orchestrator.model.BookingStep;
 import com.tamada.travel.orchestrator.model.BookingType;
 import com.tamada.travel.orchestrator.model.CompositeOrder;
+import com.tamada.travel.orchestrator.model.OrderStatus;
 import com.tamada.travel.orchestrator.repository.CompositeOrderRepository;
 import com.tamada.travel.orchestrator.service.error.UserErrorMessageResolver;
 import com.tamada.travel.orchestrator.service.sse.OrderSseService;
@@ -153,11 +154,12 @@ public class SagaCompensator {
         List<CancellationCommand> commands = order.getBookingSteps()
                 .reversed()
                 .stream()
-                .filter(step -> step.getStatus() == BookingStatus.CONFIRMED)
+                .filter(step -> step.getStatus() == BookingStatus.CONFIRMED
+                        || step.getStatus() == BookingStatus.CANCELLING)
                 .map(this::toCancellationCommand)
                 .toList();
 
-        if (!commands.isEmpty() || cancelOrderWithoutConfirmedSteps) {
+        if (!commands.isEmpty() || cancelOrderWithoutConfirmedSteps || order.getStatus() == OrderStatus.CANCELLING) {
             order.startCancelling();
         }
         return commands;

@@ -112,6 +112,16 @@ public class BookingOrchestrationService {
         ));
     }
 
+    public CompositeOrder compensate(UUID orderId) {
+        return executionLock.executeWithLock(orderId, () -> compensator.cancelConfirmedSteps(
+                orderId,
+                true,
+                null,
+                "Компенсация по расписанию (Compensation Scheduler)",
+                "Заказ отменен в рамках плановой компенсации зависших отмен."
+        ));
+    }
+
     private CompositeOrder executeSaga(UUID orderId) {
         inTransaction(() -> {
             CompositeOrder order = findOrder(orderId);

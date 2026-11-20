@@ -168,6 +168,50 @@ saga:
     initial-delay: 60s
 ```
 
+### Гарантированная компенсация зависших отмен (Saga Compensation Scheduler)
+
+Если внешний сервис был временно недоступен или оркестратор был прерван во время отмены, заказ может зависнуть в статусе `CANCELLING`.
+Для обеспечения бизнес-надежности и гарантии доведения компенсаций до внешних поставщиков реализован фоновый воркер `SagaCompensationWorker`:
+
+1. **Поиск зависших отмен**: периодически по расписанию (`@Scheduled`) и на старте приложения находит заказы со статусом `CANCELLING`, не обновлявшиеся дольше заданного порога (`saga.compensation.stuck-threshold: 2m`).
+2. **Возобновление компенсации**:
+   - Выбирает оставшиеся неподтвержденные к отмене шаги (`CONFIRMED` и `CANCELLING`) в обратном порядке.
+   - Повторно вызывает `/cancel` внешних сервисов с сохранением причины компенсации в истории операций.
+   - Шаги, уже перешедшие в `CANCELLED`, пропускаются.
+3. **Финализация**:
+   - После успешной отмены всех шагов заказ переходит в статус `CANCELLED`.
+   - Сохраняется Outbox-событие `ORDER_CANCELLED`.
+   - В поток SSE отправляется итоговое событие `order-cancelled`.
+
+Настройки в `application.yml`:
+```yaml
+saga:
+  compensation:
+    enabled: true
+    stuck-threshold: 2m
+    fixed-delay: 60s
+    initial-delay: 60s
+```
+
+### Защита от зависания потоков: Circuit Breaker (Resilience4j)
+
+Для предотвращения исчерпания пула потоков приложения при падении внешних отелей, авиалиний, страховых и трансферных поставщиков вызовы защищены с помощью **Resilience4j Circuit Breaker**:
+
+- **Fail Fast**: при превышении порога ошибок (`failure-rate-threshold: 50%`) предохранитель переходит в состояние `OPEN` и мгновенно отклоняет последующие вызовы с кодом `503 Service Unavailable`, не блокируя потоки на сетевых таймаутах.
+- **Изоляция сбоев**: каждый тип внешнего сервиса (`FLIGHT`, `HOTEL`, `INSURANCE`, `TRANSFER`) имеет собственный экземпляр Circuit Breaker. Падение сервиса отелей не блокирует бронирование авиабилетов.
+- **Умная фильтрация**: бизнес-ошибки (`400 VALIDATION_ERROR`, `404 NOT_FOUND`, `409 RESOURCE_UNAVAILABLE` — например, распроданный номер) игнорируются предохранителем и не приводят к открытию цепи. Учитываются только инфраструктурные сбои (`5xx`, таймауты, ошибки соединения).
+- **Самовосстановление**: по истечении периода ожидания (`wait-duration-in-open-state: 10s`) цепь переходит в `HALF_OPEN` и пропускает тестовые запросы для проверки восстановления внешнего поставщика.
+
+### Отправка Outbox-событий в Apache Kafka
+
+Для масштабирования и интеграции с внешними потребителями (нотификации, биллинг, аналитика) без сильной связности (loose coupling) реализован паттерн **Transactional Outbox + Kafka Publisher**:
+
+- **Гарантия доставки**: события (`ORDER_CREATED`, `ORDER_PROCESSING`, `ORDER_COMPLETED`, `ORDER_CANCELLED`) атомарно сохраняются в таблицу `outbox_messages` в рамках транзакции заказа.
+- **Фоновый паблишер**: `OutboxEventPublisher` с заданной периодичностью считывает события в статусе `PENDING` и отправляет их в Kafka-топик `tamada.order-events`.
+- **Строгий порядок (FIFO)**: в качестве ключа партиционирования Kafka используется `aggregateId` (ID заказа), что гарантирует строгую последовательность обработки всех событий одного заказа.
+- **Заголовки**: сообщения обогащаются Kafka-заголовками `eventType`, `aggregateType`, `outboxId`.
+- **Перевод в PROCESSED**: после подтверждения записи брокером Kafka сообщение помечается `status = PROCESSED`. При сбоях отправка безопасно повторяется в следующей итерации.
+
 ## API
 
 Base URL:
@@ -227,13 +271,20 @@ Content-Type: application/json
 GET /api/v1/orders/{id}
 ```
 
-### Запустить бронирование
+### Запустить бронирование (Синхронно / Асинхронно)
 
+**Синхронный запуск (200 OK):**
 ```http
 POST /api/v1/orders/{id}/start
 ```
+Endpoint выполняет последовательные `/book` в текущем HTTP-потоке и возвращает результат после завершения всей саги (статус `COMPLETED` или `CANCELLED`).
 
-Запуск синхронный: endpoint выполняет последовательные `/book` и при необходимости компенсацию.
+**Асинхронный запуск (202 Accepted — освобождение HTTP-потоков):**
+```http
+POST /api/v1/orders/{id}/start?async=true
+POST /api/v1/orders/{id}/start-async
+```
+Неблокирующий вызов: возвращает HTTP `202 Accepted` со статусом заказа `PROCESSING`. Оркестрация передается выделенному пулу потоков (`ThreadPoolTaskExecutor`), а события в реальном времени транслируются через SSE (`/events`), освобождая HTTP-потоки сервлета.
 
 ### Отменить заказ
 
@@ -403,7 +454,7 @@ Password: tamada
 Текущий результат:
 
 ```text
-Tests run: 128, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 255, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -411,14 +462,14 @@ BUILD SUCCESS
 
 ```text
 src/main/java/com/tamada/travel/orchestrator
-├── client       # внешние HTTP-клиенты и DTO
-├── config       # конфигурация клиентов
-├── controller   # REST API
-├── dto          # API request/response
-├── exception    # исключения и error handler
-├── model        # CompositeOrder и BookingStep
+├── client       # внешние HTTP-клиенты, DTO, Retrying и CircuitBreaker декораторы
+├── config       # конфигурация клиентов, Kafka, Resilience4j, ThreadPoolTaskExecutor
+├── controller   # REST API (синхронные и асинхронные эндпоинты 202 Accepted)
+├── dto          # API request/response и Outbox payloads
+├── exception    # исключения и global exception handler
+├── model        # CompositeOrder, BookingStep, OutboxMessage
 ├── repository   # Spring Data JPA
-└── service      # application и orchestration logic
+└── service      # orchestration logic, SSE, Outbox publisher, compensation scheduler
 ```
 
 Flyway migrations находятся в `src/main/resources/db/migration`.
@@ -433,9 +484,5 @@ Flyway migrations находятся в `src/main/resources/db/migration`.
 
 В текущей версии не реализованы:
 
-- circuit breaker;
-- асинхронная Saga;
-- Kafka;
-- scheduler компенсаций;
-- distributed transactions;
-- отдельный workflow engine.
+- distributed transactions (2PC / XA);
+- отдельный workflow engine (Temporal / Camunda).

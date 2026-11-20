@@ -19,6 +19,13 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+
 services:
   flight:
     base-url: ${SERVICES_FLIGHT_BASE_URL:http://localhost:3001}
@@ -42,6 +49,20 @@ saga:
     stuck-threshold: 2m
     fixed-delay: 60s
     initial-delay: 60s
+  compensation:
+    enabled: true
+    stuck-threshold: 2m
+    fixed-delay: 60s
+    initial-delay: 60s
+
+outbox:
+  publisher:
+    enabled: ${OUTBOX_PUBLISHER_ENABLED:true}
+    topic: tamada.order-events
+    batch-size: 50
+    fixed-delay: 1s
+    initial-delay: 1s
+    send-timeout: 5s
 
 springdoc:
   swagger-ui:

@@ -29,3 +29,12 @@ saga:
     stuck-threshold: 2m
     fixed-delay: 60s
     initial-delay: 60s
+  compensation:
+    enabled: true
+    stuck-threshold: 2m
+    fixed-delay: 60s
+    initial-delay: 60s
+
+outbox:
+  publisher:
+    enabled: false

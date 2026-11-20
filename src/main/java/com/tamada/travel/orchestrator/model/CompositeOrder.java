@@ -246,7 +246,8 @@ public class CompositeOrder {
     public void startCancelling() {
         if (status != OrderStatus.FAILED
                 && status != OrderStatus.PROCESSING
-                && status != OrderStatus.COMPLETED) {
+                && status != OrderStatus.COMPLETED
+                && status != OrderStatus.CANCELLING) {
             throw new InvalidStateTransitionException(
                     "Cannot start order cancellation from status " + status);
         }

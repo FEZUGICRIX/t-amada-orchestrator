@@ -480,4 +480,38 @@ class CompositeOrderServiceTest {
                 () -> service.createOrder(request)
         );
     }
+
+    @Test
+    void shouldStartOrderAsyncSuccessfully() {
+        UUID orderId = UUID.randomUUID();
+        CompositeOrder order = CompositeOrder.create();
+        org.springframework.test.util.ReflectionTestUtils.setField(order, "id", orderId);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+
+        when(repository.findById(orderId)).thenReturn(Optional.of(order));
+        when(repository.save(any(CompositeOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderResponse response = service.startOrderAsync(orderId);
+
+        assertNotNull(response);
+        assertEquals(OrderStatus.PROCESSING, response.status());
+        verify(repository).save(order);
+    }
+
+    @Test
+    void shouldRejectStartOrderAsyncWhenOrderNotInNewStatus() {
+        UUID orderId = UUID.randomUUID();
+        CompositeOrder order = CompositeOrder.create();
+        org.springframework.test.util.ReflectionTestUtils.setField(order, "id", orderId);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.startProcessing();
+
+        when(repository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThrows(
+                com.tamada.travel.orchestrator.exception.InvalidStateTransitionException.class,
+                () -> service.startOrderAsync(orderId)
+        );
+        verify(repository, never()).save(order);
+    }
 }

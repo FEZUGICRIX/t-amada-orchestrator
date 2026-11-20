@@ -16,6 +16,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -124,12 +125,16 @@ public class CompositeOrderController {
     @PostMapping("/{id}/start")
     @Operation(
             summary = "Запустить процесс оркестрации бронирования (Saga)",
-            description = "Последовательно вызывает внешние сервисы бронирования. При сбое любого шага фиксирует детальную ошибку поставщика, причину отмены остальных услуг и запускает обратную компенсацию."
+            description = "Последовательно вызывает внешние сервисы бронирования. При async=true возвращает HTTP 202 Accepted и выполняет сагу асинхронно в фоне, освобождая HTTP-поток и передавая события через SSE (/events). По умолчанию (async=false) выполняется синхронно (200 OK)."
     )
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
-                    description = "Оркестрация завершена (заказ перешел в COMPLETED или CANCELLED)"
+                    description = "Синхронная оркестрация завершена (заказ перешел в COMPLETED или CANCELLED)"
+            ),
+            @ApiResponse(
+                    responseCode = "202",
+                    description = "Асинхронная оркестрация принята в обработку (HTTP-поток освобожден, заказ в статусе PROCESSING)"
             ),
             @ApiResponse(
                     responseCode = "404",
@@ -142,10 +147,43 @@ public class CompositeOrderController {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))
             )
     })
-    public OrderResponse startOrder(
+    public ResponseEntity<OrderResponse> startOrder(
+            @Parameter(description = "Уникальный идентификатор заказа", example = "01a10131-40db-780d-8f1c-9a4b0789cfd3")
+            @PathVariable UUID id,
+            @Parameter(description = "Выполнить оркестрацию асинхронно и освободить HTTP-поток (202 Accepted)")
+            @RequestParam(required = false, defaultValue = "false") boolean async) {
+        if (async) {
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(service.startOrderAsync(id));
+        }
+        return ResponseEntity.ok(service.startOrder(id));
+    }
+
+    @PostMapping(value = {"/{id}/start-async", "/{id}/async"})
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @Operation(
+            summary = "Асинхронно запустить бронирование заказа (неблокирующий API 202 Accepted)",
+            description = "Немедленно возвращает HTTP 202 Accepted со статусом заказа PROCESSING. Оркестрация выполняется в фоновом пуле потоков, а события транслируются клиенту в реальном времени через SSE (/events)."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "202",
+                    description = "Асинхронная оркестрация принята в обработку (HTTP-поток освобожден)"
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "Заказ с указанным ID не найден",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "Недопустимый статус заказа (запуск возможен только для заказов в статусе NEW)",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+            )
+    })
+    public OrderResponse startOrderAsync(
             @Parameter(description = "Уникальный идентификатор заказа", example = "01a10131-40db-780d-8f1c-9a4b0789cfd3")
             @PathVariable UUID id) {
-        return service.startOrder(id);
+        return service.startOrderAsync(id);
     }
 
     @PostMapping("/{id}/cancel")

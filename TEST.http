@@ -383,8 +383,16 @@ GET {{baseUrl}}/api/v1/orders/00000000-0000-0000-0000-000000000000
 GET {{baseUrl}}/api/v1/orders/not-a-uuid
 
 
-### 15. Запустить обработку заказа
+### 15. Запустить обработку заказа (синхронно)
 POST {{baseUrl}}/api/v1/orders/{{orderId}}/start
+
+
+### 15.1. Запустить обработку заказа асинхронно (HTTP 202 Accepted, освобождение HTTP-потока)
+POST {{baseUrl}}/api/v1/orders/{{orderId}}/start?async=true
+
+
+### 15.2. Запустить обработку заказа через выделенный асинхронный эндпоинт (HTTP 202 Accepted)
+POST {{baseUrl}}/api/v1/orders/{{orderId}}/start-async
 
 
 ### 16. Отменить заказ

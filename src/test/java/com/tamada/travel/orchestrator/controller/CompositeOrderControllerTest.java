@@ -472,6 +472,48 @@ class CompositeOrderControllerTest {
     }
 
     @Test
+    void shouldStartOrderAsyncWith202AcceptedViaQueryParam() throws Exception {
+        UUID id = UUID.randomUUID();
+
+        OrderResponse response = new OrderResponse(
+                id,
+                OrderStatus.PROCESSING,
+                Instant.parse("2026-10-08T10:00:00Z"),
+                Instant.parse("2026-10-08T10:00:00Z"),
+                List.of());
+
+        when(service.startOrderAsync(id))
+                .thenReturn(response);
+
+        mockMvc.perform(
+                post("/api/v1/orders/{id}/start?async=true", id))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value(id.toString()))
+                .andExpect(jsonPath("$.status").value("PROCESSING"));
+    }
+
+    @Test
+    void shouldStartOrderAsyncWith202AcceptedViaAsyncPath() throws Exception {
+        UUID id = UUID.randomUUID();
+
+        OrderResponse response = new OrderResponse(
+                id,
+                OrderStatus.PROCESSING,
+                Instant.parse("2026-10-08T10:00:00Z"),
+                Instant.parse("2026-10-08T10:00:00Z"),
+                List.of());
+
+        when(service.startOrderAsync(id))
+                .thenReturn(response);
+
+        mockMvc.perform(
+                post("/api/v1/orders/{id}/start-async", id))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value(id.toString()))
+                .andExpect(jsonPath("$.status").value("PROCESSING"));
+    }
+
+    @Test
     void shouldReturnConflictWhenOrderCannotBeStarted() throws Exception {
         UUID id = UUID.randomUUID();
 

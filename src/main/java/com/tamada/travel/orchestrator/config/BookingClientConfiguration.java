@@ -1,10 +1,15 @@
 package com.tamada.travel.orchestrator.config;
 
 import com.tamada.travel.orchestrator.client.BookingClient;
+import com.tamada.travel.orchestrator.client.CircuitBreakerBookingClient;
 import com.tamada.travel.orchestrator.client.RestBookingClient;
 import com.tamada.travel.orchestrator.client.RetryingBookingClient;
 import com.tamada.travel.orchestrator.client.Sleeper;
+import com.tamada.travel.orchestrator.exception.ExternalBookingException;
 import com.tamada.travel.orchestrator.model.BookingType;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -46,10 +51,33 @@ public class BookingClientConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean
+    public CircuitBreakerRegistry circuitBreakerRegistry(BookingServicesProperties properties) {
+        BookingServicesProperties.CircuitBreakerProperties cbProps = properties.circuitBreaker();
+        CircuitBreakerConfig config = CircuitBreakerConfig.custom()
+                .failureRateThreshold(cbProps.failureRateThreshold())
+                .slidingWindowSize(cbProps.slidingWindowSize())
+                .minimumNumberOfCalls(cbProps.minimumNumberOfCalls())
+                .waitDurationInOpenState(cbProps.waitDurationInOpenState())
+                .permittedNumberOfCallsInHalfOpenState(cbProps.permittedNumberOfCallsInHalfOpenState())
+                .recordException(throwable -> {
+                    if (throwable instanceof ExternalBookingException ex) {
+                        return ex.isRetryable();
+                    }
+                    return true;
+                })
+                .ignoreException(throwable -> throwable instanceof ExternalBookingException ex && !ex.isRetryable())
+                .build();
+
+        return CircuitBreakerRegistry.of(config);
+    }
+
+    @Bean
     public BookingClient flightBookingClient(
             RestClient.Builder builder,
             BookingServicesProperties properties,
-            Sleeper sleeper) {
+            Sleeper sleeper,
+            CircuitBreakerRegistry circuitBreakerRegistry) {
         return createClient(
                 BookingType.FLIGHT,
                 builder,
@@ -57,14 +85,16 @@ public class BookingClientConfiguration {
                 "/api/v1/flight/book",
                 "/api/v1/flight/cancel",
                 properties,
-                sleeper);
+                sleeper,
+                circuitBreakerRegistry);
     }
 
     @Bean
     public BookingClient hotelBookingClient(
             RestClient.Builder builder,
             BookingServicesProperties properties,
-            Sleeper sleeper) {
+            Sleeper sleeper,
+            CircuitBreakerRegistry circuitBreakerRegistry) {
         return createClient(
                 BookingType.HOTEL,
                 builder,
@@ -72,14 +102,16 @@ public class BookingClientConfiguration {
                 "/api/v1/hotel/book",
                 "/api/v1/hotel/cancel",
                 properties,
-                sleeper);
+                sleeper,
+                circuitBreakerRegistry);
     }
 
     @Bean
     public BookingClient insuranceBookingClient(
             RestClient.Builder builder,
             BookingServicesProperties properties,
-            Sleeper sleeper) {
+            Sleeper sleeper,
+            CircuitBreakerRegistry circuitBreakerRegistry) {
         return createClient(
                 BookingType.INSURANCE,
                 builder,
@@ -87,14 +119,16 @@ public class BookingClientConfiguration {
                 "/api/v1/insurance/book",
                 "/api/v1/insurance/cancel",
                 properties,
-                sleeper);
+                sleeper,
+                circuitBreakerRegistry);
     }
 
     @Bean
     public BookingClient transferBookingClient(
             RestClient.Builder builder,
             BookingServicesProperties properties,
-            Sleeper sleeper) {
+            Sleeper sleeper,
+            CircuitBreakerRegistry circuitBreakerRegistry) {
         return createClient(
                 BookingType.TRANSFER,
                 builder,
@@ -102,7 +136,8 @@ public class BookingClientConfiguration {
                 "/api/v1/transfer/book",
                 "/api/v1/transfer/cancel",
                 properties,
-                sleeper);
+                sleeper,
+                circuitBreakerRegistry);
     }
 
     private BookingClient createClient(
@@ -112,14 +147,20 @@ public class BookingClientConfiguration {
             String bookingPath,
             String cancellationPath,
             BookingServicesProperties properties,
-            Sleeper sleeper) {
+            Sleeper sleeper,
+            CircuitBreakerRegistry circuitBreakerRegistry) {
         BookingClient restClient = new RestBookingClient(
                 type,
                 builder.clone(),
                 normalizeBaseUrl(baseUrl),
                 bookingPath,
                 cancellationPath);
-        return new RetryingBookingClient(restClient, properties.retry(), sleeper);
+        BookingClient retryingClient = new RetryingBookingClient(restClient, properties.retry(), sleeper);
+        if (properties.circuitBreaker() != null && properties.circuitBreaker().enabled() && circuitBreakerRegistry != null) {
+            CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker(type.name());
+            return new CircuitBreakerBookingClient(retryingClient, circuitBreaker);
+        }
+        return retryingClient;
     }
 
     private static URI normalizeBaseUrl(URI baseUrl) {

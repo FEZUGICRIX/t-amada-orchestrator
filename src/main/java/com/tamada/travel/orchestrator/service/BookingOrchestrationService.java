@@ -1,10 +1,9 @@
 package com.tamada.travel.orchestrator.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tamada.travel.orchestrator.client.BookingClientRegistry;
+import com.tamada.travel.orchestrator.config.SagaCompensationProperties;
 import com.tamada.travel.orchestrator.dto.error.StepErrorDetailsResponse;
-import com.tamada.travel.orchestrator.exception.ExternalBookingException;
 import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import com.tamada.travel.orchestrator.exception.OrderNotFoundException;
 import com.tamada.travel.orchestrator.model.BookingStatus;
@@ -13,9 +12,11 @@ import com.tamada.travel.orchestrator.model.BookingType;
 import com.tamada.travel.orchestrator.model.CompositeOrder;
 import com.tamada.travel.orchestrator.model.OrderStatus;
 import com.tamada.travel.orchestrator.repository.CompositeOrderRepository;
+import com.tamada.travel.orchestrator.service.error.StepErrorMapper;
 import com.tamada.travel.orchestrator.service.error.UserErrorMessageResolver;
 import com.tamada.travel.orchestrator.service.orchestration.SagaCompensator;
 import com.tamada.travel.orchestrator.service.orchestration.SagaExecutionLock;
+import com.tamada.travel.orchestrator.service.orchestration.SagaLock;
 import com.tamada.travel.orchestrator.service.orchestration.StepExecutionResult;
 import com.tamada.travel.orchestrator.service.orchestration.StepExecutor;
 import com.tamada.travel.orchestrator.service.orchestration.StepResponseValidator;
@@ -25,12 +26,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 /**
@@ -47,10 +48,15 @@ public class BookingOrchestrationService {
     private final TransactionTemplate transactionTemplate;
     private final StepExecutor stepExecutor;
     private final SagaCompensator compensator;
-    private final SagaExecutionLock executionLock;
+    private final SagaLock executionLock;
     private final UserErrorMessageResolver errorMessageResolver;
     private final OrderSseService sseService;
-    private final ObjectMapper objectMapper;
+    private final StepErrorMapper stepErrorMapper;
+    private final com.tamada.travel.orchestrator.observability.SagaMetrics metrics;
+    private final java.util.concurrent.Executor taskExecutor;
+    private boolean partialCompensationEnabled = true;
+    private boolean parallelStepsEnabled = false;
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @Autowired
     public BookingOrchestrationService(
@@ -58,10 +64,15 @@ public class BookingOrchestrationService {
             TransactionTemplate transactionTemplate,
             StepExecutor stepExecutor,
             SagaCompensator compensator,
-            SagaExecutionLock executionLock,
+            SagaLock executionLock,
             @Autowired(required = false) UserErrorMessageResolver errorMessageResolver,
             @Autowired(required = false) OrderSseService sseService,
-            @Autowired(required = false) ObjectMapper objectMapper
+            @Autowired(required = false) StepErrorMapper stepErrorMapper,
+            @Autowired(required = false) SagaCompensationProperties compensationProperties,
+            @Autowired(required = false) com.tamada.travel.orchestrator.observability.SagaMetrics metrics,
+            @Autowired(required = false) com.tamada.travel.orchestrator.config.SagaExecutionProperties executionProperties,
+            @Autowired(required = false) org.springframework.context.ApplicationEventPublisher eventPublisher,
+            @Autowired(required = false) @org.springframework.beans.factory.annotation.Qualifier("sagaTaskExecutor") java.util.concurrent.Executor taskExecutor
     ) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
         this.transactionTemplate = Objects.requireNonNull(transactionTemplate, "transactionTemplate must not be null");
@@ -70,11 +81,60 @@ public class BookingOrchestrationService {
         this.executionLock = Objects.requireNonNull(executionLock, "executionLock must not be null");
         this.errorMessageResolver = errorMessageResolver != null ? errorMessageResolver : new UserErrorMessageResolver();
         this.sseService = sseService;
-        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+        this.stepErrorMapper = stepErrorMapper != null
+                ? stepErrorMapper
+                : new StepErrorMapper(this.errorMessageResolver, new ObjectMapper());
+        this.partialCompensationEnabled = compensationProperties != null && compensationProperties.partialCompensationEnabled();
+        this.metrics = metrics;
+        this.parallelStepsEnabled = executionProperties != null && executionProperties.parallelStepsEnabled();
+        this.eventPublisher = eventPublisher;
+        this.taskExecutor = taskExecutor != null ? taskExecutor : java.util.concurrent.ForkJoinPool.commonPool();
+    }
+
+    public BookingOrchestrationService(
+            CompositeOrderRepository repository,
+            TransactionTemplate transactionTemplate,
+            StepExecutor stepExecutor,
+            SagaCompensator compensator,
+            SagaLock executionLock,
+            UserErrorMessageResolver errorMessageResolver,
+            OrderSseService sseService,
+            StepErrorMapper stepErrorMapper,
+            SagaCompensationProperties compensationProperties,
+            com.tamada.travel.orchestrator.observability.SagaMetrics metrics
+    ) {
+        this(repository, transactionTemplate, stepExecutor, compensator, executionLock, errorMessageResolver, sseService, stepErrorMapper, compensationProperties, metrics, null, null, null);
+    }
+
+    public BookingOrchestrationService(
+            CompositeOrderRepository repository,
+            TransactionTemplate transactionTemplate,
+            StepExecutor stepExecutor,
+            SagaCompensator compensator,
+            SagaLock executionLock,
+            UserErrorMessageResolver errorMessageResolver,
+            OrderSseService sseService,
+            ObjectMapper objectMapper
+    ) {
+        this(
+                repository,
+                transactionTemplate,
+                stepExecutor,
+                compensator,
+                executionLock,
+                errorMessageResolver,
+                sseService,
+                new StepErrorMapper(errorMessageResolver != null ? errorMessageResolver : new UserErrorMessageResolver(), objectMapper),
+                null,
+                null,
+                null,
+                null,
+                null
+        );
     }
 
     /**
-     * Конструктор обратной совместимости для существующих тестов, где зависимости не инжектятся через Spring.
+     * Конструктор для тестов, инициализирующий сагу с заданной фабрикой клиентов.
      */
     public BookingOrchestrationService(
             CompositeOrderRepository repository,
@@ -86,12 +146,32 @@ public class BookingOrchestrationService {
         StepResponseValidator validator = new StepResponseValidator();
         UserErrorMessageResolver resolver = new UserErrorMessageResolver();
         ObjectMapper mapper = new ObjectMapper();
+        StepErrorMapper errorMapper = new StepErrorMapper(resolver, mapper);
         this.stepExecutor = new StepExecutor(clientRegistry, validator, repository, transactionTemplate);
-        this.compensator = new SagaCompensator(clientRegistry, validator, repository, transactionTemplate, resolver, null, mapper);
+        this.compensator = new SagaCompensator(clientRegistry, validator, repository, transactionTemplate, resolver, null, errorMapper);
         this.executionLock = new SagaExecutionLock();
         this.errorMessageResolver = resolver;
         this.sseService = null;
-        this.objectMapper = mapper;
+        this.stepErrorMapper = errorMapper;
+        this.partialCompensationEnabled = false;
+        this.metrics = null;
+        this.taskExecutor = java.util.concurrent.ForkJoinPool.commonPool();
+    }
+
+    public boolean isPartialCompensationEnabled() {
+        return partialCompensationEnabled;
+    }
+
+    public void setPartialCompensationEnabled(boolean partialCompensationEnabled) {
+        this.partialCompensationEnabled = partialCompensationEnabled;
+    }
+
+    public boolean isParallelStepsEnabled() {
+        return parallelStepsEnabled;
+    }
+
+    public void setParallelStepsEnabled(boolean parallelStepsEnabled) {
+        this.parallelStepsEnabled = parallelStepsEnabled;
     }
 
     public CompositeOrder orchestrate(UUID orderId) {
@@ -153,6 +233,36 @@ public class BookingOrchestrationService {
                         null,
                         null
                 );
+            } else if (order.getStatus() == OrderStatus.FAILED) {
+                order.startProcessing();
+                order.clearPendingStepsSkipInfo();
+                order.recordOperation(
+                        null,
+                        null,
+                        "ORDER_RESUMED",
+                        "PROCESSING",
+                        null,
+                        null,
+                        null,
+                        "Возобновление бронирования заказа после модификации/замены услуг.",
+                        null,
+                        null
+                );
+            } else if (order.getStatus() == OrderStatus.COMPLETED && order.getBookingSteps().stream().anyMatch(s -> s.getStatus() == BookingStatus.PENDING)) {
+                order.startProcessing();
+                order.clearPendingStepsSkipInfo();
+                order.recordOperation(
+                        null,
+                        null,
+                        "ORDER_RESUMED",
+                        "PROCESSING",
+                        null,
+                        null,
+                        null,
+                        "До-оркестрация добавленных услуг заказа.",
+                        null,
+                        null
+                );
             } else {
                 throw new InvalidStateTransitionException(
                         "Cannot start or resume order processing from status " + order.getStatus()
@@ -165,17 +275,66 @@ public class BookingOrchestrationService {
             sseService.publishOrderStatus(orderId, OrderStatus.PROCESSING);
         }
 
+        if (eventPublisher != null) {
+            eventPublisher.publishEvent(new com.tamada.travel.orchestrator.event.OrderStatusChangedEvent(orderId, OrderStatus.PROCESSING));
+        }
+
         while (true) {
             if (Thread.currentThread().isInterrupted()) {
                 throw new IllegalStateException("Saga execution interrupted for order " + orderId);
+            }
+
+            if (parallelStepsEnabled) {
+                // Фазово-параллельное выполнение: если все авиабилеты подтверждены,
+                // независимые наземные услуги (HOTEL, INSURANCE, TRANSFER) бронируются одновременно
+                boolean hasPendingFlight = inTransaction(() -> {
+                    CompositeOrder order = findOrder(orderId);
+                    return order.getBookingSteps().stream()
+                            .anyMatch(s -> s.getType() == BookingType.FLIGHT && s.getStatus() == BookingStatus.PENDING);
+                });
+
+                if (!hasPendingFlight) {
+                    List<BookingStepCommand> parallelBatch = inTransaction(() -> {
+                        CompositeOrder order = findOrder(orderId);
+                        List<BookingStepCommand> batch = new ArrayList<>();
+                        for (BookingStep s : order.getBookingSteps()) {
+                            if (s.getStatus() == BookingStatus.PENDING) {
+                                s.startProcessing();
+                                batch.add(new BookingStepCommand(s.getId(), s.getType(), s.getResourceId()));
+                            }
+                        }
+                        return batch;
+                    });
+
+                    if (parallelBatch.size() > 1) {
+                        boolean batchFailed = executeParallelBatch(orderId, parallelBatch);
+                        if (batchFailed) {
+                            return findOrder(orderId);
+                        }
+                        continue;
+                    } else if (parallelBatch.size() == 1) {
+                        inTransaction(() -> {
+                            CompositeOrder order = findOrder(orderId);
+                            order.findBookingStep(parallelBatch.get(0).bookingReference()).ifPresent(BookingStep::resetToPending);
+                            return true;
+                        });
+                    }
+                }
             }
 
             Optional<BookingStepCommand> nextStep = inTransaction(() -> startNextStep(orderId));
 
             if (nextStep.isEmpty()) {
                 CompositeOrder completedOrder = inTransaction(() -> completeOrder(orderId));
+                if (metrics != null) {
+                    metrics.incrementOrderCounter(OrderStatus.COMPLETED);
+                    metrics.recordOrderDuration(OrderStatus.COMPLETED, java.time.Duration.between(completedOrder.getCreatedAt(), java.time.Instant.now()));
+                }
                 if (sseService != null) {
                     sseService.publishOrderCompleted(orderId);
+                }
+                if (eventPublisher != null) {
+                    eventPublisher.publishEvent(new com.tamada.travel.orchestrator.event.OrderStatusChangedEvent(orderId, OrderStatus.COMPLETED));
                 }
                 return completedOrder;
             }
@@ -194,6 +353,9 @@ public class BookingOrchestrationService {
             );
 
             if (result instanceof StepExecutionResult.Success success) {
+                if (metrics != null) {
+                    metrics.incrementStepExecution(step.type(), BookingStatus.CONFIRMED);
+                }
                 inTransaction(() -> {
                     CompositeOrder order = findOrder(orderId);
                     BookingStep bookingStep = findBookingStep(order, step.bookingReference());
@@ -215,11 +377,100 @@ public class BookingOrchestrationService {
                 if (sseService != null) {
                     sseService.publishStepStatus(orderId, step.bookingReference(), step.type(), BookingStatus.CONFIRMED, success.externalBookingId().toString());
                 }
+
+                if (eventPublisher != null) {
+                    eventPublisher.publishEvent(new com.tamada.travel.orchestrator.event.BookingStepStatusChangedEvent(
+                            orderId, step.bookingReference(), step.type(), BookingStatus.CONFIRMED, success.externalBookingId().toString()));
+                }
             } else if (result instanceof StepExecutionResult.Failure failure) {
+                if (metrics != null) {
+                    metrics.incrementStepExecution(step.type(), BookingStatus.FAILED);
+                }
                 handleBookingFailure(orderId, step, failure.exception());
                 return findOrder(orderId);
             }
         }
+    }
+
+    private boolean executeParallelBatch(UUID orderId, List<BookingStepCommand> batch) {
+        if (sseService != null) {
+            for (BookingStepCommand step : batch) {
+                sseService.publishStepStatus(orderId, step.bookingReference(), step.type(), BookingStatus.PROCESSING, null);
+            }
+        }
+
+        List<CompletableFuture<StepBatchOutcome>> futures = batch.stream()
+                .map(step -> CompletableFuture.supplyAsync(() -> {
+                    StepExecutionResult res = stepExecutor.executeStep(
+                            orderId,
+                            step.bookingReference(),
+                            step.type(),
+                            step.resourceId()
+                    );
+                    return new StepBatchOutcome(step, res);
+                }, taskExecutor))
+                .toList();
+
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        BookingStepCommand firstFailedStep = null;
+        RuntimeException firstException = null;
+
+        for (var future : futures) {
+            StepBatchOutcome outcome = future.join();
+            BookingStepCommand step = outcome.step();
+            StepExecutionResult result = outcome.result();
+
+            if (result instanceof StepExecutionResult.Success success) {
+                if (metrics != null) {
+                    metrics.incrementStepExecution(step.type(), BookingStatus.CONFIRMED);
+                }
+                inTransaction(() -> {
+                    CompositeOrder order = findOrder(orderId);
+                    BookingStep bookingStep = findBookingStep(order, step.bookingReference());
+                    order.recordOperation(
+                            bookingStep,
+                            step.type(),
+                            "BOOK",
+                            "CONFIRMED",
+                            200,
+                            null,
+                            null,
+                            "Услуга (" + errorMessageResolver.formatServiceName(step.type()) + ") успешно подтверждена внешним сервисом.",
+                            null,
+                            null
+                    );
+                    return true;
+                });
+
+                if (sseService != null) {
+                    sseService.publishStepStatus(orderId, step.bookingReference(), step.type(), BookingStatus.CONFIRMED, success.externalBookingId().toString());
+                }
+
+                if (eventPublisher != null) {
+                    eventPublisher.publishEvent(new com.tamada.travel.orchestrator.event.BookingStepStatusChangedEvent(
+                            orderId, step.bookingReference(), step.type(), BookingStatus.CONFIRMED, success.externalBookingId().toString()));
+                }
+            } else if (result instanceof StepExecutionResult.Failure failure) {
+                if (metrics != null) {
+                    metrics.incrementStepExecution(step.type(), BookingStatus.FAILED);
+                }
+                if (firstFailedStep == null) {
+                    firstFailedStep = step;
+                    firstException = failure.exception();
+                }
+            }
+        }
+
+        if (firstFailedStep != null) {
+            handleBookingFailure(orderId, firstFailedStep, firstException);
+            return true;
+        }
+
+        return false;
+    }
+
+    private record StepBatchOutcome(BookingStepCommand step, StepExecutionResult result) {
     }
 
     private Optional<BookingStepCommand> startNextStep(UUID orderId) {
@@ -237,48 +488,17 @@ public class BookingOrchestrationService {
             BookingStepCommand stepCommand,
             RuntimeException bookingFailure
     ) {
-        Integer httpStatus = null;
-        String errorCode = "SYSTEM_FAILURE";
-        String technicalMessage = bookingFailure.getMessage();
-        String userMessage;
-        StepErrorDetailsResponse errorDetails;
-
-        if (bookingFailure instanceof ExternalBookingException extEx) {
-            httpStatus = extEx.getHttpStatus().value();
-            errorCode = extEx.getErrorType().name();
-            technicalMessage = extEx.getMessage();
-            userMessage = extEx.getUserFriendlyMessage() != null
-                    ? extEx.getUserFriendlyMessage()
-                    : errorMessageResolver.resolveBookingErrorMessage(extEx.getService(), extEx.getErrorType(), httpStatus, extEx.getMessage());
-            errorDetails = new StepErrorDetailsResponse(
-                    httpStatus,
-                    extEx.getErrorTitle(),
-                    extEx.getSupplierMessage(),
-                    extEx.getPath(),
-                    extEx.getSupplierTimestamp() != null ? extEx.getSupplierTimestamp() : Instant.now().toString()
-            );
-        } else {
-            httpStatus = 500;
-            errorCode = "SYSTEM_FAILURE";
-            userMessage = "Сбой при бронировании услуги (" + errorMessageResolver.formatServiceName(stepCommand.type()) + "): " + bookingFailure.getMessage();
-            errorDetails = new StepErrorDetailsResponse(
-                    500,
-                    "Internal Error",
-                    bookingFailure.getMessage(),
-                    null,
-                    Instant.now().toString()
-            );
-        }
-
-        String detailsJson = serializeErrorDetails(errorDetails);
-        final String finalUserMessage = userMessage;
-        final String finalErrorCode = errorCode;
-        final Integer finalHttpStatus = httpStatus;
-        final String finalTechnicalMessage = technicalMessage;
+        StepErrorMapper.StepErrorInfo errorInfo = stepErrorMapper.mapBookingError(stepCommand.type(), bookingFailure);
+        final Integer httpStatus = errorInfo.httpStatus();
+        final String errorCode = errorInfo.errorCode();
+        final String technicalMessage = errorInfo.technicalMessage();
+        final String userMessage = errorInfo.userMessage();
+        final StepErrorDetailsResponse errorDetails = errorInfo.details();
+        final String detailsJson = errorInfo.serializedDetailsJson();
 
         List<SkippedStepInfo> skippedSteps = inTransaction(() -> {
             CompositeOrder order = findOrder(orderId);
-            order.failCurrentBookingStep(finalErrorCode, finalTechnicalMessage, finalUserMessage, detailsJson);
+            order.failCurrentBookingStep(errorCode, technicalMessage, userMessage, detailsJson);
 
             BookingStep failedStep = order.getBookingSteps().stream()
                     .filter(s -> Objects.equals(s.getId(), stepCommand.bookingReference()))
@@ -290,10 +510,10 @@ public class BookingOrchestrationService {
                     stepCommand.type(),
                     "BOOK",
                     "FAILED",
-                    finalHttpStatus,
-                    finalErrorCode,
-                    finalTechnicalMessage,
-                    finalUserMessage,
+                    httpStatus,
+                    errorCode,
+                    technicalMessage,
+                    userMessage,
                     detailsJson,
                     null
             );
@@ -302,7 +522,7 @@ public class BookingOrchestrationService {
             List<SkippedStepInfo> skipped = new ArrayList<>();
             for (BookingStep step : order.getBookingSteps()) {
                 if (step.getStatus() == BookingStatus.PENDING) {
-                    String skipReason = errorMessageResolver.resolveSkippedStepReason(step.getType(), stepCommand.type(), finalUserMessage);
+                    String skipReason = errorMessageResolver.resolveSkippedStepReason(step.getType(), stepCommand.type(), userMessage);
                     String skipUserMsg = errorMessageResolver.resolveSkippedStepUserMessage(step.getType(), stepCommand.type());
                     step.markSkipped(skipReason, skipUserMsg);
 
@@ -348,6 +568,61 @@ public class BookingOrchestrationService {
                         skipped.userMessage()
                 );
             }
+        }
+
+        if (eventPublisher != null) {
+            eventPublisher.publishEvent(new com.tamada.travel.orchestrator.event.BookingStepFailedEvent(
+                    orderId,
+                    stepCommand.bookingReference(),
+                    stepCommand.type(),
+                    errorCode,
+                    httpStatus,
+                    technicalMessage,
+                    userMessage,
+                    errorDetails
+            ));
+            for (SkippedStepInfo skipped : skippedSteps) {
+                eventPublisher.publishEvent(new com.tamada.travel.orchestrator.event.BookingStepCancelledEvent(
+                        orderId,
+                        skipped.stepId(),
+                        skipped.type(),
+                        skipped.status(),
+                        skipped.cancellationReason(),
+                        skipped.userMessage()
+                ));
+            }
+        }
+
+        boolean isHotel = stepCommand.type() == BookingType.HOTEL;
+        boolean preserveConfirmed = partialCompensationEnabled && isHotel;
+
+        if (preserveConfirmed) {
+            log.info("Partial compensation active: preserving confirmed bookings after {} failure for order {}",
+                    stepCommand.type(), orderId);
+            inTransaction(() -> {
+                CompositeOrder order = findOrder(orderId);
+                order.recordOperation(
+                        null,
+                        null,
+                        "ORDER_FAILED",
+                        "FAILED",
+                        null,
+                        errorCode,
+                        technicalMessage,
+                        "Сбой бронирования отеля. Заказ ожидает выбора альтернативного отеля. Выкупленные билеты сохранены.",
+                        detailsJson,
+                        null
+                );
+                return true;
+            });
+            if (sseService != null) {
+                sseService.publishOrderStatus(orderId, OrderStatus.FAILED);
+            }
+            if (eventPublisher != null) {
+                eventPublisher.publishEvent(new com.tamada.travel.orchestrator.event.OrderStatusChangedEvent(
+                        orderId, OrderStatus.FAILED, technicalMessage, userMessage));
+            }
+            return;
         }
 
         String orderFailureReason = "Сбой бронирования шага " + stepCommand.type() + ": " + technicalMessage;
@@ -400,17 +675,6 @@ public class BookingOrchestrationService {
         return Objects.requireNonNull(
                 transactionTemplate.execute(status -> action.get())
         );
-    }
-
-    private String serializeErrorDetails(StepErrorDetailsResponse details) {
-        if (details == null) {
-            return null;
-        }
-        try {
-            return objectMapper.writeValueAsString(details);
-        } catch (JsonProcessingException e) {
-            return null;
-        }
     }
 
     private record BookingStepCommand(

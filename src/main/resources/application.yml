@@ -2,10 +2,18 @@ spring:
   application:
     name: orchestrator
 
+  threads:
+    virtual:
+      enabled: true
+
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/tamada}
     username: ${SPRING_DATASOURCE_USERNAME:tamada}
     password: ${SPRING_DATASOURCE_PASSWORD:tamada}
+    hikari:
+      maximum-pool-size: ${HIKARI_MAX_POOL_SIZE:25}
+      minimum-idle: ${HIKARI_MIN_IDLE:5}
+      connection-timeout: 20000
 
   jpa:
     hibernate:
@@ -42,6 +50,28 @@ services:
     initial-delay: 200ms
     multiplier: 2.0
     max-delay: 2s
+    jitter-enabled: ${SERVICES_RETRY_JITTER_ENABLED:true}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+    prometheus:
+      access: unrestricted
+  health:
+    circuitbreakers:
+      enabled: false
 
 saga:
   recovery:
@@ -51,6 +81,7 @@ saga:
     initial-delay: 60s
   compensation:
     enabled: true
+    partial-compensation-enabled: true
     stuck-threshold: 2m
     fixed-delay: 60s
     initial-delay: 60s
@@ -59,10 +90,19 @@ outbox:
   publisher:
     enabled: ${OUTBOX_PUBLISHER_ENABLED:true}
     topic: tamada.order-events
-    batch-size: 50
-    fixed-delay: 1s
+    batch-size: 100
+    fixed-delay: 500ms
     initial-delay: 1s
     send-timeout: 5s
+
+security:
+  api-key:
+    enabled: ${SECURITY_API_KEY_ENABLED:false}
+    header-name: X-API-KEY
+    api-key: ${SECURITY_API_KEY:tamada-orchestrator-api-key-production}
+  encryption:
+    enabled: true
+    secret-key: ${ENCRYPTION_SECRET_KEY:tamada-secret-encryption-key-256bit-ok!}
 
 springdoc:
   swagger-ui:

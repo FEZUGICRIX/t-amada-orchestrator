@@ -110,9 +110,9 @@ FLIGHT -> HOTEL -> INSURANCE -> TRANSFER
 
 После успешного `/book` шаг получает `CONFIRMED`, а внешний booking ID сохраняется в `externalId`. Когда подтверждены все шаги, заказ получает `COMPLETED`.
 
-### Частичный отказ
+### Частичный отказ и полная компенсация (All-or-Nothing)
 
-Если `/book` завершился ошибкой:
+При отключенной частичной компенсации (`saga.compensation.partial-compensation-enabled: false`), если `/book` завершился ошибкой:
 
 1. текущий шаг получает `FAILED`;
 2. заказ получает `FAILED`;
@@ -132,6 +132,25 @@ TRANSFER    PENDING
 ```
 
 Если внешний `/cancel` завершился ошибкой, текущий шаг и заказ остаются в `CANCELLING`. Дальнейшая компенсация останавливается.
+
+### Частичная компенсация и замена отеля (Partial Compensation & Hotel Replacement)
+
+По умолчанию включена частичная компенсация (`saga.compensation.partial-compensation-enabled: true`), обеспечивающая сохранение выкупленных услуг при сбое бронирования отеля:
+
+1. **Сохранение выкупленных авиабилетов**:
+   - При сбое бронирования отеля (например, 409 Conflict / номер распродан) выкупленные авиабилеты (`FLIGHT`) **не отменяются** и сохраняют статус `CONFIRMED`.
+   - Заказ переходит в статус `FAILED` (а не в терминальный `CANCELLED`), ожидая действий пользователя по выбору альтернативного отеля.
+   - В историю операций и поток SSE отправляются детальные причины сбоя отеля и уведомление о сохранности билетов.
+2. **Замена отеля в рамках того же заказа**:
+   - Пользователь может выбрать альтернативный вариант проживания через API `POST /api/v1/orders/{id}/hotel/replace` (или `PUT /api/v1/orders/{id}/hotel`).
+   - При замене отеля шаг получает новый `resourceId`, параметры номеров (`rooms`), статус сбрасывается в `PENDING`, пересчитывается базовая стоимость заказа и сервисный сбор.
+   - Если старый отель уже был подтвержден (`CONFIRMED`), выполняется его внешняя отмена (`/cancel`), а авиабилеты остаются нетронутыми.
+3. **Возобновление и до-оркестрация**:
+   - Запуск оркестрации (`POST /api/v1/orders/{id}/start` или `POST /api/v1/orders/{id}/start-async`) разрешен из статусов `NEW`, `FAILED`, а также `COMPLETED` (при наличии шагов в статусе `PENDING`).
+   - Уже выкупленные услуги повторно не бронируются; запрос на бронирование отправляется только на замененный отель и оставшиеся шаги.
+   - После успешного бронирования всех услуг заказ переходит в статус `COMPLETED`.
+4. **Гарантированная компенсация при явной отмене**:
+   - Если пользователь решает не выбирать альтернативный отель и отменить весь заказ через `POST /api/v1/orders/{id}/cancel`, сохраненные авиабилеты отменяются во внешнем сервисе, и заказ переходит в `CANCELLED`.
 
 ### Ручная отмена
 
@@ -210,7 +229,7 @@ saga:
 - **Фоновый паблишер**: `OutboxEventPublisher` с заданной периодичностью считывает события в статусе `PENDING` и отправляет их в Kafka-топик `tamada.order-events`.
 - **Строгий порядок (FIFO)**: в качестве ключа партиционирования Kafka используется `aggregateId` (ID заказа), что гарантирует строгую последовательность обработки всех событий одного заказа.
 - **Заголовки**: сообщения обогащаются Kafka-заголовками `eventType`, `aggregateType`, `outboxId`.
-- **Перевод в PROCESSED**: после подтверждения записи брокером Kafka сообщение помечается `status = PROCESSED`. При сбоях отправка безопасно повторяется в следующей итерации.
+- **Перевод в SENT / FAILED**: после успешной отправки в брокер Kafka сообщение помечается `status = SENT`. При ошибке отправки статус меняется на `FAILED`.
 
 ## API
 
@@ -271,13 +290,15 @@ Content-Type: application/json
 GET /api/v1/orders/{id}
 ```
 
-### Запустить бронирование (Синхронно / Асинхронно)
+### Запустить бронирование / Возобновить оркестрацию (Синхронно / Асинхронно)
+
+Запуск возможен для заказов в статусе `NEW`, `FAILED` (после сбоя шага и замены услуги), а также `COMPLETED` (при наличии добавленных или замененных `PENDING` шагов).
 
 **Синхронный запуск (200 OK):**
 ```http
 POST /api/v1/orders/{id}/start
 ```
-Endpoint выполняет последовательные `/book` в текущем HTTP-потоке и возвращает результат после завершения всей саги (статус `COMPLETED` или `CANCELLED`).
+Endpoint выполняет последовательные `/book` в текущем HTTP-потоке для всех ожидающих (`PENDING`) шагов. Уже подтвержденные (`CONFIRMED`) услуги пропускаются. Возвращает результат после завершения саги (статус `COMPLETED`, `FAILED` или `CANCELLED`).
 
 **Асинхронный запуск (202 Accepted — освобождение HTTP-потоков):**
 ```http
@@ -286,7 +307,63 @@ POST /api/v1/orders/{id}/start-async
 ```
 Неблокирующий вызов: возвращает HTTP `202 Accepted` со статусом заказа `PROCESSING`. Оркестрация передается выделенному пулу потоков (`ThreadPoolTaskExecutor`), а события в реальном времени транслируются через SSE (`/events`), освобождая HTTP-потоки сервлета.
 
-### Отменить заказ
+### Заменить отель на альтернативный (POST / PUT)
+
+Позволяет пользователю выбрать альтернативный отель в рамках того же заказа с сохранением уже выкупленных авиабилетов:
+
+```http
+POST /api/v1/orders/{id}/hotel/replace
+PUT /api/v1/orders/{id}/hotel
+Content-Type: application/json
+```
+
+```json
+{
+  "resourceId": "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a99",
+  "price": 12500.00,
+  "roomsCount": 1,
+  "rooms": [
+    {
+      "category": "Делюкс",
+      "tariff": "С завтраком",
+      "price": 12500.00,
+      "stayConditions": "Завтрак включен, бесплатная отмена"
+    }
+  ]
+}
+```
+
+- Если предыдущий отель уже был подтвержден (`CONFIRMED`), выполняется его внешняя частичная компенсация (`/cancel`).
+- Новый отель переходит в статус `PENDING`.
+- Пересчитывается общая стоимость заказа (`basePrice`), сервисный сбор (`serviceFee`) и итоговая цена (`totalPrice`).
+- После замены отеля оркестрацию можно возобновить вызовом `POST /api/v1/orders/{id}/start`.
+
+### Модифицировать шаг бронирования (универсальный эндпоинт)
+
+```http
+PUT /api/v1/orders/{id}/steps/{stepId}
+Content-Type: application/json
+```
+
+```json
+{
+  "type": "HOTEL",
+  "resourceId": "b3eebc99-9c0b-4ef8-bb6d-6bb9bd380a77",
+  "price": 16000.00
+}
+```
+
+Универсальный эндпоинт для замены любого шага бронирования (отель, трансфер, страховка). Если шаг был подтвержден, запускается его частичная компенсация, статус переводится в `PENDING`, а стоимость пересчитывается.
+
+### Отменить конкретный шаг бронирования
+
+```http
+POST /api/v1/orders/{id}/steps/{stepId}/cancel
+```
+
+Отменяет отдельную подтвержденную услугу через внешний `/cancel` с сохранением остальных забронированных услуг в заказе.
+
+### Отменить заказ (полная отмена)
 
 ```http
 POST /api/v1/orders/{id}/cancel
@@ -437,6 +514,48 @@ Password: tamada
 
 Основная конфигурация находится в `src/main/resources/application.yml`.
 
+## Наблюдаемость и мониторинг (Observability)
+
+### Корреляция запросов и сквозной W3C Trace Context
+- Входящий трафик: `CorrelationIdFilter` перехватывает заголовки `X-Correlation-Id` или `X-Request-Id`, помещает их в SLF4J `MDC` и возвращает в заголовке ответа `X-Correlation-Id`.
+- Асинхронные потоки: `MdcTaskDecorator` переносит MDC контекст в рабочий пул `sagaTaskExecutor`.
+- Исходящий трафик во внешние сервисы: `CorrelationIdClientInterceptor` автоматически обогащает все вызовы к внешним сервисам бронирования (Flight, Hotel, Insurance, Transfer) заголовками `X-Correlation-Id`, `X-Request-Id`, `X-Order-Id` и стандартным W3C `traceparent` (`00-{traceId}-{spanId}-01`).
+
+### Метрики (Micrometer & Prometheus)
+- Компонент `SagaMetrics` регистрирует детальные бизнес-метрики:
+  - `orchestrator.saga.order.duration` (Timer SLA выполнения саги с тегом статуса `COMPLETED`, `FAILED`, `CANCELLED`);
+  - `orchestrator.saga.orders.total` (Counter терминальных состояний саги);
+  - `orchestrator.saga.steps.total` (Counter шагов бронирования по типам и статусам);
+  - `orchestrator.booking.client.retries.total` (Counter повторных попыток вызовов);
+  - `orchestrator.saga.compensations.total` (Counter компенсаций с тегом режима `PARTIAL` / `FULL`);
+  - `orchestrator.outbox.published.total` и `orchestrator.outbox.dlq.total` (Counter опубликованных и направленных в DLQ событий).
+
+### Health Indicators (Spring Boot Actuator)
+- Подключен `spring-boot-starter-actuator` с кастомным `SagaOrchestratorHealthIndicator` (доступен по адресу `/actuator/health`).
+- Индикатор отслеживает:
+  - Состояние Circuit Breaker для каждого типа сервиса (`FLIGHT`, `HOTEL`, `INSURANCE`, `TRANSFER`). При переходе любого Circuit Breaker в состояние `OPEN` статус сервиса переходит в `DOWN`.
+  - Размер очереди ожидающих сообщений Transactional Outbox. Если количество неотправленных сообщений превышает пороговое значение (по умолчанию 1000), индикатор сообщает о деградации `OUTBOX_BACKLOG_HIGH`.
+
+## Отказоустойчивость и безопасность (Fault Tolerance)
+
+- **Идемпотентность API (IETF Idempotency-Key Standard)**:
+  - Для защиты от дублирования заказов при повторных отправках запросов реализован `IdempotencyFilter` и `IdempotencyService`.
+  - Клиент передает заголовок `Idempotency-Key` при вызове мутирующих методов (`POST /api/v1/orders`).
+  - При повторном запросе с тем же телом сервер моментально возвращает кэшированный ответ с заголовком `Idempotent-Replayed: true`.
+  - При одновременных параллельных запросах возвращается `409 Conflict`.
+  - При попытке повторного использования ключа с другим телом запроса возвращается `422 Unprocessable Content`.
+  - Данные фиксируются в таблице `idempotency_records` (миграция `V9__create_idempotency_records_table.sql`).
+- **Dead Letter Queue (DLQ) для Transactional Outbox**:
+  - При постоянных сбоях доставки сообщений в основной топик Kafka (`tamada.order-events`) сообщения автоматически перенаправляются в очередь недоставленных сообщений (`tamada.order-events.DLQ`) со статусом `DEAD_LETTER` и служебными заголовками `x-original-topic`, `x-exception-message` и `x-failed-at`.
+- **Exponential Backoff с Full Jitter**:
+  - Механизм повторных вызовов `RetryingBookingClient` поддерживает рандомизацию задержки (`Full Jitter` в диапазоне `[0.5 * delay, delay]`), устраняя эффект лавины запросов («thundering herd problem») при восстановлении внешних систем. Настраивается через `services.retry.jitter-enabled: true`.
+- **Circuit Breaker**:
+  - Resilience4j защищает систему от каскадных сбоев при длительной недоступности внешних поставщиков.
+- **Graceful Shutdown**:
+  - Пул потоков асинхронного выполнения `sagaTaskExecutor` настроен с параметрами `waitForTasksToCompleteOnShutdown(true)` и `awaitTerminationSeconds(30)`, обеспечивая завершение активных операций бронирования при остановке приложения.
+- **Изоляция блокировок (SagaLock Abstraction)**:
+  - Выделен чистый интерфейс `SagaLock` (DIP), изолирующий логику взаимного исключения от бизнес-логики саги и поддерживающий легкую замену in-memory реализации на Redis/Advisory Locks.
+
 ## Тесты
 
 ```bash
@@ -449,12 +568,12 @@ Password: tamada
 - HTTP-вызовы эмулируются через `MockRestServiceServer`;
 - Saga integration tests проверяют цепочку Controller → Service → Orchestrator → RestBookingClient → mock HTTP service.
 
-Покрыты успешное бронирование, частичные отказы, ошибки `409` и `500`, обратная компенсация, ручная отмена и ошибки внешнего `/cancel`.
+Покрыты успешное бронирование, частичные отказы, ошибки `409` и `500`, обратная компенсация, ручная отмена, ошибки внешнего `/cancel`, параллельная обработка, работа Transactional Outbox, DLQ маршрутизация, Idempotency-Key, Correlation ID, Micrometer метрики и Health Indicators.
 
 Текущий результат:
 
 ```text
-Tests run: 255, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 288, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -462,14 +581,15 @@ BUILD SUCCESS
 
 ```text
 src/main/java/com/tamada/travel/orchestrator
-├── client       # внешние HTTP-клиенты, DTO, Retrying и CircuitBreaker декораторы
-├── config       # конфигурация клиентов, Kafka, Resilience4j, ThreadPoolTaskExecutor
-├── controller   # REST API (синхронные и асинхронные эндпоинты 202 Accepted)
-├── dto          # API request/response и Outbox payloads
-├── exception    # исключения и global exception handler
-├── model        # CompositeOrder, BookingStep, OutboxMessage
-├── repository   # Spring Data JPA
-└── service      # orchestration logic, SSE, Outbox publisher, compensation scheduler
+├── client         # внешние HTTP-клиенты, DTO, Retrying, JitterStrategy и CircuitBreaker декораторы
+├── config         # конфигурация клиентов, Kafka, Resilience4j, ThreadPoolTaskExecutor, Properties
+├── controller     # REST API (синхронные и асинхронные эндпоинты 202 Accepted)
+├── dto            # API request/response и Outbox payloads
+├── exception      # иерархия доменных и клиентских исключений, GlobalExceptionHandler
+├── model          # CompositeOrder (Aggregate Root), BookingStep, OutboxMessage, OrderOperationHistory
+├── observability  # CorrelationIdFilter, MdcTaskDecorator, SagaOrchestratorHealthIndicator
+├── repository     # Spring Data JPA репозитории
+└── service        # orchestration, SSE, Outbox, StepErrorMapper, SagaRecovery/Compensation workers
 ```
 
 Flyway migrations находятся в `src/main/resources/db/migration`.

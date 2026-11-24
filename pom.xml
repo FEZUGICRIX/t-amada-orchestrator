@@ -81,6 +81,17 @@
             <artifactId>spring-kafka</artifactId>
         </dependency>
 
+        <!-- Spring Boot Actuator (Health, Metrics, Observability) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -140,6 +151,7 @@
                             <goal>compile</goal>
                         </goals>
                         <configuration>
+                            <showDeprecation>true</showDeprecation>
                             <annotationProcessorPaths>
                                 <path>
                                     <groupId>org.projectlombok</groupId>
@@ -156,6 +168,7 @@
                             <goal>testCompile</goal>
                         </goals>
                         <configuration>
+                            <showDeprecation>true</showDeprecation>
                             <annotationProcessorPaths>
                                 <path>
                                     <groupId>org.projectlombok</groupId>

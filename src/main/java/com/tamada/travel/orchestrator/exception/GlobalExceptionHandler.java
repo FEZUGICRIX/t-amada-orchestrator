@@ -160,6 +160,20 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(PayloadTooLargeException.class)
+    public ResponseEntity<ErrorResponse> handlePayloadTooLarge(
+            PayloadTooLargeException exception,
+            HttpServletRequest request
+    ) {
+        log.warn("Payload too large: {}", exception.getMessage());
+        return buildResponse(
+                HttpStatus.valueOf(413),
+                exception.getMessage(),
+                request.getRequestURI(),
+                null
+        );
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpectedException(
             Exception exception,

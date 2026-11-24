@@ -2,11 +2,13 @@ package com.tamada.travel.orchestrator.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.validation.annotation.Validated;
 
 import java.net.URI;
 import java.time.Duration;
 
 @ConfigurationProperties(prefix = "services")
+@Validated
 public record BookingServicesProperties(
         ServiceProperties flight,
         ServiceProperties hotel,
@@ -20,7 +22,7 @@ public record BookingServicesProperties(
 
     public BookingServicesProperties {
         if (retry == null) {
-            retry = new RetryProperties(3, Duration.ofMillis(200), 2.0, Duration.ofSeconds(2));
+            retry = new RetryProperties(3, Duration.ofMillis(200), 2.0, Duration.ofSeconds(2), false);
         }
         if (circuitBreaker == null) {
             circuitBreaker = new CircuitBreakerProperties(true, 50.0f, 10, 4, Duration.ofSeconds(10), 3);
@@ -34,7 +36,8 @@ public record BookingServicesProperties(
             @DefaultValue("3") int maxAttempts,
             @DefaultValue("200ms") Duration initialDelay,
             @DefaultValue("2.0") double multiplier,
-            @DefaultValue("2s") Duration maxDelay
+            @DefaultValue("2s") Duration maxDelay,
+            @DefaultValue("false") boolean jitterEnabled
     ) {
         public RetryProperties {
             if (maxAttempts < 1) {
@@ -49,6 +52,10 @@ public record BookingServicesProperties(
             if (maxDelay == null) {
                 maxDelay = Duration.ofSeconds(2);
             }
+        }
+
+        public RetryProperties(int maxAttempts, Duration initialDelay, double multiplier, Duration maxDelay) {
+            this(maxAttempts, initialDelay, multiplier, maxDelay, false);
         }
     }
 

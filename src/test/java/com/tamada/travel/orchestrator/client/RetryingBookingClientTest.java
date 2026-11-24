@@ -311,4 +311,73 @@ class RetryingBookingClientTest {
         // Clean interrupted flag
         Thread.interrupted();
     }
+
+    @Test
+    void shouldApplyJitterStrategyWhenConfigured() {
+        BookingServicesProperties.RetryProperties jitterProps = new BookingServicesProperties.RetryProperties(
+                3,
+                Duration.ofMillis(100),
+                2.0,
+                Duration.ofMillis(500),
+                true
+        );
+
+        RetryingBookingClient retryingClient = new RetryingBookingClient(
+                mockDelegate,
+                jitterProps,
+                recordingSleeper
+        );
+
+        BookingRequest request = new BookingRequest(UUID.randomUUID(), UUID.randomUUID());
+        ExternalBookingException timeoutException = new ExternalBookingException(
+                HttpStatus.GATEWAY_TIMEOUT,
+                BookingType.HOTEL,
+                ExternalBookingErrorType.SYSTEM_FAILURE,
+                "Connection timed out",
+                "/api/v1/hotel/book",
+                null
+        );
+
+        when(mockDelegate.book(request))
+                .thenThrow(timeoutException)
+                .thenReturn(new BookingResponse(UUID.randomUUID(), request.bookingReference(), "CONFIRMED", Instant.now()));
+
+        retryingClient.book(request);
+
+        assertEquals(1, recordedDelays.size());
+        Duration jitteredDelay = recordedDelays.get(0);
+        // Full jitter should be between 50ms and 100ms
+        assertTrue(jitteredDelay.toMillis() >= 50 && jitteredDelay.toMillis() <= 100,
+                "Expected jittered delay between 50 and 100 ms, but was: " + jitteredDelay.toMillis());
+    }
+
+    @Test
+    void shouldUseCustomJitterStrategy() {
+        JitterStrategy fixedJitter = delay -> delay.plusMillis(42);
+        RetryingBookingClient retryingClient = new RetryingBookingClient(
+                mockDelegate,
+                retryProperties,
+                recordingSleeper,
+                fixedJitter
+        );
+
+        BookingRequest request = new BookingRequest(UUID.randomUUID(), UUID.randomUUID());
+        ExternalBookingException timeoutException = new ExternalBookingException(
+                HttpStatus.GATEWAY_TIMEOUT,
+                BookingType.HOTEL,
+                ExternalBookingErrorType.SYSTEM_FAILURE,
+                "Timeout",
+                "/api/v1/hotel/book",
+                null
+        );
+
+        when(mockDelegate.book(request))
+                .thenThrow(timeoutException)
+                .thenReturn(new BookingResponse(UUID.randomUUID(), request.bookingReference(), "CONFIRMED", Instant.now()));
+
+        retryingClient.book(request);
+
+        assertEquals(1, recordedDelays.size());
+        assertEquals(Duration.ofMillis(142), recordedDelays.get(0));
+    }
 }

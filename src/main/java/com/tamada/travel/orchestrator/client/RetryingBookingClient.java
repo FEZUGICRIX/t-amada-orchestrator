@@ -14,6 +14,10 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.function.Supplier;
 
+/**
+ * Декоратор {@link BookingClient}, обеспечивающий отказоустойчивые повторные попытки (Retry)
+ * с настраиваемой экспоненциальной задержкой (Exponential Backoff) и случайным разбросом (Jitter).
+ */
 public class RetryingBookingClient implements BookingClient {
 
     private static final Logger log = LoggerFactory.getLogger(RetryingBookingClient.class);
@@ -21,6 +25,8 @@ public class RetryingBookingClient implements BookingClient {
     private final BookingClient delegate;
     private final BookingServicesProperties.RetryProperties retryProperties;
     private final Sleeper sleeper;
+    private final JitterStrategy jitterStrategy;
+    private final com.tamada.travel.orchestrator.observability.SagaMetrics metrics;
 
     public RetryingBookingClient(
             BookingClient delegate,
@@ -34,11 +40,39 @@ public class RetryingBookingClient implements BookingClient {
             BookingServicesProperties.RetryProperties retryProperties,
             Sleeper sleeper
     ) {
+        this(
+                delegate,
+                retryProperties,
+                sleeper,
+                (retryProperties != null && retryProperties.jitterEnabled())
+                        ? JitterStrategy.FULL_JITTER
+                        : JitterStrategy.NO_JITTER
+        );
+    }
+
+    public RetryingBookingClient(
+            BookingClient delegate,
+            BookingServicesProperties.RetryProperties retryProperties,
+            Sleeper sleeper,
+            JitterStrategy jitterStrategy
+    ) {
+        this(delegate, retryProperties, sleeper, jitterStrategy, null);
+    }
+
+    public RetryingBookingClient(
+            BookingClient delegate,
+            BookingServicesProperties.RetryProperties retryProperties,
+            Sleeper sleeper,
+            JitterStrategy jitterStrategy,
+            com.tamada.travel.orchestrator.observability.SagaMetrics metrics
+    ) {
         this.delegate = Objects.requireNonNull(delegate, "Delegate BookingClient must not be null");
         this.retryProperties = retryProperties != null
                 ? retryProperties
-                : new BookingServicesProperties.RetryProperties(3, Duration.ofMillis(200), 2.0, Duration.ofSeconds(2));
+                : new BookingServicesProperties.RetryProperties(3, Duration.ofMillis(200), 2.0, Duration.ofSeconds(2), false);
         this.sleeper = Objects.requireNonNull(sleeper, "Sleeper must not be null");
+        this.jitterStrategy = jitterStrategy != null ? jitterStrategy : JitterStrategy.NO_JITTER;
+        this.metrics = metrics;
     }
 
     @Override
@@ -54,6 +88,14 @@ public class RetryingBookingClient implements BookingClient {
     @Override
     public CancelBookingResponse cancel(CancelBookingRequest request) {
         return executeWithRetry("cancel", () -> delegate.cancel(request));
+    }
+
+    public JitterStrategy getJitterStrategy() {
+        return jitterStrategy;
+    }
+
+    public BookingClient getDelegate() {
+        return delegate;
     }
 
     private <T> T executeWithRetry(String operation, Supplier<T> action) {
@@ -80,18 +122,25 @@ public class RetryingBookingClient implements BookingClient {
                     throw exception;
                 }
 
+                Duration actualDelay = jitterStrategy.computeDelay(delay);
+
                 log.warn(
-                        "Attempt {}/{} failed for {} on service {}: {}. Retrying in {}ms...",
+                        "Attempt {}/{} failed for {} on service {}: {}. Retrying in {}ms (jittered from {}ms)...",
                         attempt,
                         maxAttempts,
                         operation,
                         delegate.type(),
                         exception.getMessage(),
+                        actualDelay.toMillis(),
                         delay.toMillis()
                 );
 
+                if (metrics != null) {
+                    metrics.incrementStepRetry(delegate.type(), operation);
+                }
+
                 try {
-                    sleeper.sleep(delay);
+                    sleeper.sleep(actualDelay);
                 } catch (InterruptedException interruptedException) {
                     Thread.currentThread().interrupt();
                     throw new ExternalBookingException(

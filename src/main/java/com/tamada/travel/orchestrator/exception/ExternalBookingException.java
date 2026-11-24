@@ -81,6 +81,10 @@ public class ExternalBookingException extends RuntimeException {
     }
 
     public boolean isRetryable() {
+        if ("CircuitBreakerOpen".equalsIgnoreCase(errorTitle)
+                || (getCause() != null && getCause().getClass().getName().contains("CallNotPermittedException"))) {
+            return false;
+        }
         return errorType.isRetryable();
     }
 }

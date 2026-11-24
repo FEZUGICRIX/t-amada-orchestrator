@@ -91,7 +91,14 @@ public class OutboxService {
     }
 
     private OrderCreatedOutboxPayload buildPayload(CompositeOrder order) {
-        List<Passenger> passengers = order.getPassengers() != null ? order.getPassengers() : List.of();
+        List<Passenger> passengers;
+        try {
+            passengers = (order.getPassengers() != null && org.hibernate.Hibernate.isInitialized(order.getPassengers()))
+                    ? order.getPassengers()
+                    : List.of();
+        } catch (Exception e) {
+            passengers = List.of();
+        }
 
         int adultsCount = (int) passengers.stream()
                 .filter(p -> p.getType() == PassengerType.ADULT)
@@ -104,15 +111,20 @@ public class OutboxService {
                 .count();
 
         var passengerPayloads = passengers.stream()
-                .map(p -> new OrderCreatedOutboxPayload.PassengerPayload(
-                        p.getId(),
-                        p.getType(),
-                        p.getFirstName(),
-                        p.getLastName(),
-                        p.getBirthDate(),
-                        p.getCitizenship(),
-                        p.getDocumentType(),
-                        p.getDocumentNumber()))
+                .map(p -> {
+                    String maskedDoc = OrderCreatedOutboxPayload.PassengerPayload.maskDocument(p.getDocumentNumber());
+                    return new OrderCreatedOutboxPayload.PassengerPayload(
+                            p.getId(),
+                            p.getType(),
+                            p.getFirstName(),
+                            p.getLastName(),
+                            p.getBirthDate(),
+                            p.getCitizenship(),
+                            p.getDocumentType(),
+                            maskedDoc,
+                            maskedDoc
+                    );
+                })
                 .toList();
 
         var groupComposition = new OrderCreatedOutboxPayload.GroupCompositionPayload(
@@ -124,11 +136,15 @@ public class OutboxService {
         );
 
         OrderCreatedOutboxPayload.CustomerContactPayload contactPayload = null;
-        if (order.getCustomerContact() != null) {
-            contactPayload = new OrderCreatedOutboxPayload.CustomerContactPayload(
-                    order.getCustomerContact().getPhone(),
-                    order.getCustomerContact().getEmail()
-            );
+        try {
+            if (order.getCustomerContact() != null && org.hibernate.Hibernate.isInitialized(order.getCustomerContact())) {
+                contactPayload = new OrderCreatedOutboxPayload.CustomerContactPayload(
+                        order.getCustomerContact().getPhone(),
+                        order.getCustomerContact().getEmail()
+                );
+            }
+        } catch (Exception e) {
+            log.debug("CustomerContact not initialized for outbox order {}: {}", order.getId(), e.getMessage());
         }
 
         var steps = order.getBookingSteps() != null ? order.getBookingSteps() : List.<com.tamada.travel.orchestrator.model.BookingStep>of();
@@ -136,16 +152,22 @@ public class OutboxService {
                 .map(step -> {
                     Integer roomsCount = null;
                     List<OrderCreatedOutboxPayload.HotelRoomPayload> roomPayloads = null;
-                    if (step.getType() == com.tamada.travel.orchestrator.model.BookingType.HOTEL && step.getRooms() != null && !step.getRooms().isEmpty()) {
-                        roomsCount = step.getRooms().size();
-                        roomPayloads = step.getRooms().stream()
-                                .map(r -> new OrderCreatedOutboxPayload.HotelRoomPayload(
-                                        r.getId(),
-                                        r.getCategory(),
-                                        r.getTariff(),
-                                        r.getPrice(),
-                                        r.getStayConditions()))
-                                .toList();
+                    if (step.getType() == com.tamada.travel.orchestrator.model.BookingType.HOTEL) {
+                        try {
+                            if (step.getRooms() != null && !step.getRooms().isEmpty()) {
+                                roomsCount = step.getRooms().size();
+                                roomPayloads = step.getRooms().stream()
+                                        .map(r -> new OrderCreatedOutboxPayload.HotelRoomPayload(
+                                                r.getId(),
+                                                r.getCategory(),
+                                                r.getTariff(),
+                                                r.getPrice(),
+                                                r.getStayConditions()))
+                                        .toList();
+                            }
+                        } catch (Exception e) {
+                            // ignore uninitialized lazy rooms when detached
+                        }
                     }
                     return new OrderCreatedOutboxPayload.SelectedOptionPayload(
                             step.getId(),
@@ -167,7 +189,9 @@ public class OutboxService {
                 contactPayload,
                 groupComposition,
                 selectedOptions,
-                order.getCreatedAt() != null ? order.getCreatedAt() : Instant.now()
+                order.getCreatedAt() != null ? order.getCreatedAt() : Instant.now(),
+                order.getFailureReason(),
+                order.getUserMessage()
         );
     }
 }

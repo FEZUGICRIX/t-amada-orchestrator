@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Валидатор входных параметров составного заказа и его шагов бронирования.
@@ -49,7 +50,16 @@ public class OrderValidator {
         }
     }
 
-    private void validateBookingStep(CreateBookingStepRequest booking) {
+    public void validateBookingStep(CreateBookingStepRequest booking) {
+        if (booking == null) {
+            throw new InvalidBookingDataException("Booking step must not be null");
+        }
+        if (booking.resourceId() == null) {
+            throw new InvalidBookingDataException("Resource id must not be null");
+        }
+        if (booking.price() != null && booking.price().compareTo(BigDecimal.ZERO) < 0) {
+            throw new InvalidBookingDataException("Step price must not be negative");
+        }
         if (booking.type() != BookingType.HOTEL) {
             if (booking.rooms() != null && !booking.rooms().isEmpty()) {
                 throw new InvalidBookingDataException("Rooms can only be specified for HOTEL bookings");
@@ -60,6 +70,17 @@ public class OrderValidator {
         } else {
             validateHotelBooking(booking);
         }
+    }
+
+    public void validateHotelReplacement(UUID resourceId, BigDecimal price, Integer roomsCount, List<HotelRoomRequest> rooms) {
+        if (resourceId == null) {
+            throw new InvalidBookingDataException("Resource id must not be null");
+        }
+        if (price != null && price.compareTo(BigDecimal.ZERO) < 0) {
+            throw new InvalidBookingDataException("Step price must not be negative");
+        }
+        CreateBookingStepRequest dummyHotel = new CreateBookingStepRequest(BookingType.HOTEL, resourceId, price, roomsCount, rooms);
+        validateHotelBooking(dummyHotel);
     }
 
     private void validateHotelBooking(CreateBookingStepRequest booking) {

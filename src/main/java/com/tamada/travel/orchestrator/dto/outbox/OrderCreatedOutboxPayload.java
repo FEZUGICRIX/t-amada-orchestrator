@@ -22,8 +22,37 @@ public record OrderCreatedOutboxPayload(
         CustomerContactPayload customerContact,
         GroupCompositionPayload groupComposition,
         List<SelectedOptionPayload> selectedOptions,
-        Instant createdAt
+        Instant createdAt,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String failureReason,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String userMessage
 ) {
+    public OrderCreatedOutboxPayload(
+            UUID orderId,
+            OrderStatus status,
+            BigDecimal basePrice,
+            BigDecimal serviceFee,
+            BigDecimal totalPrice,
+            CustomerContactPayload customerContact,
+            GroupCompositionPayload groupComposition,
+            List<SelectedOptionPayload> selectedOptions,
+            Instant createdAt
+    ) {
+        this(
+                orderId,
+                status,
+                basePrice,
+                serviceFee,
+                totalPrice,
+                customerContact,
+                groupComposition,
+                selectedOptions,
+                createdAt,
+                null,
+                null
+        );
+    }
     public OrderCreatedOutboxPayload(
             UUID orderId,
             OrderStatus status,
@@ -68,8 +97,33 @@ public record OrderCreatedOutboxPayload(
             LocalDate birthDate,
             String citizenship,
             String documentType,
-            String documentNumber
+            String documentNumber,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String maskedDocumentNumber
     ) {
+        public PassengerPayload(
+                UUID id,
+                PassengerType type,
+                String firstName,
+                String lastName,
+                LocalDate birthDate,
+                String citizenship,
+                String documentType,
+                String documentNumber
+        ) {
+            this(id, type, firstName, lastName, birthDate, citizenship, documentType, documentNumber, maskDocument(documentNumber));
+        }
+
+        public static String maskDocument(String doc) {
+            if (doc == null || doc.isBlank()) {
+                return doc;
+            }
+            int len = doc.length();
+            if (len <= 4) {
+                return "****";
+            }
+            return "*".repeat(len - 4) + doc.substring(len - 4);
+        }
     }
 
     public record SelectedOptionPayload(

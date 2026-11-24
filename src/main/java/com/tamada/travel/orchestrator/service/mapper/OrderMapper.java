@@ -42,19 +42,39 @@ public class OrderMapper {
             return null;
         }
 
-        List<BookingStepResponse> steps = order.getBookingSteps() != null
-                ? order.getBookingSteps().stream().map(this::toBookingStepResponse).toList()
-                : List.of();
+        List<BookingStepResponse> steps;
+        try {
+            steps = order.getBookingSteps() != null
+                    ? order.getBookingSteps().stream().map(this::toBookingStepResponse).toList()
+                    : List.of();
+        } catch (Exception e) {
+            steps = List.of();
+        }
 
-        List<PassengerResponse> passengers = order.getPassengers() != null
-                ? order.getPassengers().stream().map(this::toPassengerResponse).toList()
-                : List.of();
+        List<PassengerResponse> passengers;
+        try {
+            passengers = order.getPassengers() != null
+                    ? order.getPassengers().stream().map(this::toPassengerResponse).toList()
+                    : List.of();
+        } catch (Exception e) {
+            passengers = List.of();
+        }
 
-        CustomerContactResponse contactResponse = toCustomerContactResponse(order.getCustomerContact());
+        CustomerContactResponse contactResponse;
+        try {
+            contactResponse = toCustomerContactResponse(order.getCustomerContact());
+        } catch (Exception e) {
+            contactResponse = null;
+        }
 
-        List<OrderOperationHistoryResponse> historyResponses = order.getOperationHistory() != null
-                ? order.getOperationHistory().stream().map(this::toOperationHistoryResponse).toList()
-                : List.of();
+        List<OrderOperationHistoryResponse> historyResponses;
+        try {
+            historyResponses = order.getOperationHistory() != null
+                    ? order.getOperationHistory().stream().map(this::toOperationHistoryResponse).toList()
+                    : List.of();
+        } catch (Exception e) {
+            historyResponses = List.of();
+        }
 
         return new OrderResponse(
                 order.getId(),
@@ -81,17 +101,23 @@ public class OrderMapper {
         Integer roomsCount = null;
         List<HotelRoomResponse> roomResponses = null;
 
-        if (step.getType() == BookingType.HOTEL && step.getRooms() != null && !step.getRooms().isEmpty()) {
-            roomsCount = step.getRooms().size();
-            roomResponses = step.getRooms().stream()
-                    .map(r -> new HotelRoomResponse(
-                            r.getId(),
-                            r.getCategory(),
-                            r.getTariff(),
-                            r.getPrice(),
-                            r.getStayConditions()
-                    ))
-                    .toList();
+        if (step.getType() == BookingType.HOTEL) {
+            try {
+                if (step.getRooms() != null && !step.getRooms().isEmpty()) {
+                    roomsCount = step.getRooms().size();
+                    roomResponses = step.getRooms().stream()
+                            .map(r -> new HotelRoomResponse(
+                                    r.getId(),
+                                    r.getCategory(),
+                                    r.getTariff(),
+                                    r.getPrice(),
+                                    r.getStayConditions()
+                            ))
+                            .toList();
+                }
+            } catch (Exception e) {
+                // Ignore uninitialized lazy rooms when detached
+            }
         }
 
         StepErrorDetailsResponse errorDetails = parseErrorDetails(step.getErrorDetails());

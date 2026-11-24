@@ -7,17 +7,20 @@ import com.tamada.travel.orchestrator.client.RetryingBookingClient;
 import com.tamada.travel.orchestrator.client.Sleeper;
 import com.tamada.travel.orchestrator.exception.ExternalBookingException;
 import com.tamada.travel.orchestrator.model.BookingType;
+import com.tamada.travel.orchestrator.observability.CorrelationIdClientInterceptor;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.time.Duration;
 
 @Configuration(proxyBeanMethods = false)
@@ -29,19 +32,33 @@ public class BookingClientConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public RestClient.Builder restClientBuilder(BookingServicesProperties properties) {
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+    public RestClient.Builder restClientBuilder(
+            BookingServicesProperties properties,
+            ObjectProvider<CorrelationIdClientInterceptor> correlationIdInterceptorProvider
+    ) {
         Duration connectTimeout = properties.connectTimeout() != null
                 ? properties.connectTimeout()
                 : DEFAULT_CONNECT_TIMEOUT;
         Duration readTimeout = properties.readTimeout() != null
                 ? properties.readTimeout()
                 : DEFAULT_READ_TIMEOUT;
-        requestFactory.setConnectTimeout(connectTimeout);
+
+        HttpClient httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_2)
+                .connectTimeout(connectTimeout)
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(readTimeout);
 
-        return RestClient.builder()
+        RestClient.Builder builder = RestClient.builder()
                 .requestFactory(requestFactory);
+
+        CorrelationIdClientInterceptor interceptor = correlationIdInterceptorProvider.getIfAvailable(CorrelationIdClientInterceptor::new);
+        builder.requestInterceptor(interceptor);
+
+        return builder;
     }
 
     @Bean
@@ -77,7 +94,8 @@ public class BookingClientConfiguration {
             RestClient.Builder builder,
             BookingServicesProperties properties,
             Sleeper sleeper,
-            CircuitBreakerRegistry circuitBreakerRegistry) {
+            CircuitBreakerRegistry circuitBreakerRegistry,
+            ObjectProvider<com.tamada.travel.orchestrator.observability.SagaMetrics> sagaMetricsProvider) {
         return createClient(
                 BookingType.FLIGHT,
                 builder,
@@ -86,7 +104,8 @@ public class BookingClientConfiguration {
                 "/api/v1/flight/cancel",
                 properties,
                 sleeper,
-                circuitBreakerRegistry);
+                circuitBreakerRegistry,
+                sagaMetricsProvider.getIfAvailable());
     }
 
     @Bean
@@ -94,7 +113,8 @@ public class BookingClientConfiguration {
             RestClient.Builder builder,
             BookingServicesProperties properties,
             Sleeper sleeper,
-            CircuitBreakerRegistry circuitBreakerRegistry) {
+            CircuitBreakerRegistry circuitBreakerRegistry,
+            ObjectProvider<com.tamada.travel.orchestrator.observability.SagaMetrics> sagaMetricsProvider) {
         return createClient(
                 BookingType.HOTEL,
                 builder,
@@ -103,7 +123,8 @@ public class BookingClientConfiguration {
                 "/api/v1/hotel/cancel",
                 properties,
                 sleeper,
-                circuitBreakerRegistry);
+                circuitBreakerRegistry,
+                sagaMetricsProvider.getIfAvailable());
     }
 
     @Bean
@@ -111,7 +132,8 @@ public class BookingClientConfiguration {
             RestClient.Builder builder,
             BookingServicesProperties properties,
             Sleeper sleeper,
-            CircuitBreakerRegistry circuitBreakerRegistry) {
+            CircuitBreakerRegistry circuitBreakerRegistry,
+            ObjectProvider<com.tamada.travel.orchestrator.observability.SagaMetrics> sagaMetricsProvider) {
         return createClient(
                 BookingType.INSURANCE,
                 builder,
@@ -120,7 +142,8 @@ public class BookingClientConfiguration {
                 "/api/v1/insurance/cancel",
                 properties,
                 sleeper,
-                circuitBreakerRegistry);
+                circuitBreakerRegistry,
+                sagaMetricsProvider.getIfAvailable());
     }
 
     @Bean
@@ -128,7 +151,8 @@ public class BookingClientConfiguration {
             RestClient.Builder builder,
             BookingServicesProperties properties,
             Sleeper sleeper,
-            CircuitBreakerRegistry circuitBreakerRegistry) {
+            CircuitBreakerRegistry circuitBreakerRegistry,
+            ObjectProvider<com.tamada.travel.orchestrator.observability.SagaMetrics> sagaMetricsProvider) {
         return createClient(
                 BookingType.TRANSFER,
                 builder,
@@ -137,7 +161,8 @@ public class BookingClientConfiguration {
                 "/api/v1/transfer/cancel",
                 properties,
                 sleeper,
-                circuitBreakerRegistry);
+                circuitBreakerRegistry,
+                sagaMetricsProvider.getIfAvailable());
     }
 
     private BookingClient createClient(
@@ -148,19 +173,28 @@ public class BookingClientConfiguration {
             String cancellationPath,
             BookingServicesProperties properties,
             Sleeper sleeper,
-            CircuitBreakerRegistry circuitBreakerRegistry) {
+            CircuitBreakerRegistry circuitBreakerRegistry,
+            com.tamada.travel.orchestrator.observability.SagaMetrics metrics) {
         BookingClient restClient = new RestBookingClient(
                 type,
                 builder.clone(),
                 normalizeBaseUrl(baseUrl),
                 bookingPath,
                 cancellationPath);
-        BookingClient retryingClient = new RetryingBookingClient(restClient, properties.retry(), sleeper);
+
+        BookingClient targetClient = new RetryingBookingClient(
+                restClient,
+                properties.retry(),
+                sleeper,
+                (properties.retry() != null && properties.retry().jitterEnabled()) ? com.tamada.travel.orchestrator.client.JitterStrategy.FULL_JITTER : com.tamada.travel.orchestrator.client.JitterStrategy.NO_JITTER,
+                metrics);
+
         if (properties.circuitBreaker() != null && properties.circuitBreaker().enabled() && circuitBreakerRegistry != null) {
             CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker(type.name());
-            return new CircuitBreakerBookingClient(retryingClient, circuitBreaker);
+            targetClient = new CircuitBreakerBookingClient(targetClient, circuitBreaker);
         }
-        return retryingClient;
+
+        return targetClient;
     }
 
     private static URI normalizeBaseUrl(URI baseUrl) {

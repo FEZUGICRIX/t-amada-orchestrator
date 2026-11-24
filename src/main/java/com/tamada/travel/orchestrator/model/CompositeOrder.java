@@ -1,5 +1,6 @@
 package com.tamada.travel.orchestrator.model;
 
+import com.tamada.travel.orchestrator.dto.HotelRoomRequest;
 import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -179,7 +180,14 @@ public class CompositeOrder {
     }
 
     public void startProcessing() {
-        if (status != OrderStatus.NEW) {
+        if (status == OrderStatus.COMPLETED) {
+            boolean hasPendingSteps = bookingSteps.stream()
+                    .anyMatch(step -> step.getStatus() == BookingStatus.PENDING);
+            if (!hasPendingSteps) {
+                throw new InvalidStateTransitionException(
+                        "Cannot start order processing from status COMPLETED: no pending steps to book");
+            }
+        } else if (status != OrderStatus.NEW && status != OrderStatus.FAILED) {
             throw new InvalidStateTransitionException(
                     "Cannot start order processing from status " + status);
         }
@@ -274,48 +282,6 @@ public class CompositeOrder {
         }
     }
 
-    /**
-     * @deprecated Локальная компенсация в памяти. В паттерне Saga Orchestration
-     * компенсация выполняется внешними вызовами через {@code BookingOrchestrationService}.
-     */
-    @Deprecated(since = "task-17")
-    public void compensateConfirmedBookings() {
-        if (status != OrderStatus.FAILED) {
-            throw new InvalidStateTransitionException(
-                    "Cannot compensate order from status " + status);
-        }
-
-        startCancelling();
-        cancelConfirmedBookingSteps();
-        cancel();
-    }
-
-    /**
-     * @deprecated Ручная отмена в памяти. В распределенной саге отмена выполняется
-     * через оркестратор {@code BookingOrchestrationService.cancel()}.
-     */
-    @Deprecated(since = "task-17")
-    public void cancelManually() {
-        if (status != OrderStatus.PROCESSING && status != OrderStatus.COMPLETED) {
-            throw new InvalidStateTransitionException(
-                    "Cannot cancel order manually from status " + status);
-        }
-
-        startCancelling();
-        cancelConfirmedBookingSteps();
-        cancel();
-    }
-
-    private void cancelConfirmedBookingSteps() {
-        for (int i = bookingSteps.size() - 1; i >= 0; i--) {
-            BookingStep step = bookingSteps.get(i);
-            if (step.getStatus() == BookingStatus.CONFIRMED) {
-                step.startCancelling();
-                step.cancel();
-            }
-        }
-    }
-
     public void resetProcessingStepsToPending() {
         if (status != OrderStatus.PROCESSING) {
             throw new InvalidStateTransitionException(
@@ -327,6 +293,66 @@ public class CompositeOrder {
                 step.resetToPending();
             }
         }
+    }
+
+    public Optional<BookingStep> findBookingStep(UUID stepId) {
+        if (stepId == null) {
+            return Optional.empty();
+        }
+        return bookingSteps.stream()
+                .filter(step -> Objects.equals(step.getId(), stepId))
+                .findFirst();
+    }
+
+    public Optional<BookingStep> findHotelStep() {
+        return bookingSteps.stream()
+                .filter(step -> step.getType() == BookingType.HOTEL)
+                .findFirst();
+    }
+
+    public void clearPendingStepsSkipInfo() {
+        for (BookingStep step : bookingSteps) {
+            if (step.getStatus() == BookingStatus.PENDING) {
+                step.clearSkipInfo();
+            }
+        }
+    }
+
+    public BookingStep replaceBookingStep(
+            UUID stepId,
+            UUID newResourceId,
+            BigDecimal newPrice,
+            List<HotelRoomRequest> rooms
+    ) {
+        if (status == OrderStatus.CANCELLED || status == OrderStatus.CANCELLING) {
+            throw new InvalidStateTransitionException(
+                    "Cannot modify order in status " + status);
+        }
+
+        BookingStep step = findBookingStep(stepId)
+                .orElseThrow(() -> new InvalidStateTransitionException(
+                        "Booking step not found: " + stepId));
+
+        step.replace(newResourceId, newPrice);
+        if (step.getType() == BookingType.HOTEL && rooms != null && !rooms.isEmpty()) {
+            for (var roomReq : rooms) {
+                step.addRoom(
+                        roomReq.category(),
+                        roomReq.tariff(),
+                        roomReq.price(),
+                        roomReq.stayConditions()
+                );
+            }
+            step.recalculatePriceFromRooms();
+        }
+        recalculatePricing();
+
+        if (status == OrderStatus.FAILED) {
+            this.failureReason = null;
+            this.userMessage = null;
+        }
+
+        return step;
     }
 
     public Optional<BookingStep> startNextBookingStep() {

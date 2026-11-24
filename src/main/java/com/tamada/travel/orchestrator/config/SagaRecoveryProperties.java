@@ -1,16 +1,19 @@
 package com.tamada.travel.orchestrator.config;
 
+import jakarta.validation.constraints.NotNull;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
 @ConfigurationProperties(prefix = "saga.recovery")
+@Validated
 public record SagaRecoveryProperties(
         @DefaultValue("true") boolean enabled,
-        @DefaultValue("2m") Duration stuckThreshold,
-        @DefaultValue("60s") Duration fixedDelay,
-        @DefaultValue("60s") Duration initialDelay
+        @NotNull @DefaultValue("2m") Duration stuckThreshold,
+        @NotNull @DefaultValue("60s") Duration fixedDelay,
+        @NotNull @DefaultValue("60s") Duration initialDelay
 ) {
     public SagaRecoveryProperties {
         if (stuckThreshold == null) {

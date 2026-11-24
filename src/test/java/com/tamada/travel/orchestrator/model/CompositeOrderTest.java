@@ -1,10 +1,12 @@
 package com.tamada.travel.orchestrator.model;
 
+import com.tamada.travel.orchestrator.dto.HotelRoomRequest;
+import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
 import com.tamada.travel.orchestrator.exception.InvalidStateTransitionException;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -99,84 +101,52 @@ class CompositeOrderTest {
     }
 
     @Test
-    void shouldRejectCompleteWhenBookingStepIsPending() {
+    void shouldRejectCompleteWhenStepsNotConfirmed() {
         CompositeOrder order = CompositeOrder.create();
         order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
         order.startProcessing();
+
+        BookingStep firstStep = order.startNextBookingStep().orElseThrow();
+        firstStep.confirm("flight-123");
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                order::complete);
+                order::complete
+        );
         assertEquals(OrderStatus.PROCESSING, order.getStatus());
     }
 
     @Test
-    void shouldRejectCompleteWhenBookingStepIsProcessing() {
+    void shouldFailOrderAndRecordMessage() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
         order.startProcessing();
-        order.startNextBookingStep().orElseThrow();
 
-        assertThrows(
-                InvalidStateTransitionException.class,
-                order::complete);
-        assertEquals(OrderStatus.PROCESSING, order.getStatus());
-    }
+        order.fail("External service timeout", "Сервис временно недоступен");
 
-    @Test
-    void shouldFailCurrentBookingStepAndOrder() {
-        CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-        order.startProcessing();
-        BookingStep currentStep = order.startNextBookingStep().orElseThrow();
-
-        order.failCurrentBookingStep();
-
-        assertEquals(BookingStatus.FAILED, currentStep.getStatus());
         assertEquals(OrderStatus.FAILED, order.getStatus());
+        assertEquals("External service timeout", order.getFailureReason());
+        assertEquals("Сервис временно недоступен", order.getUserMessage());
     }
 
     @Test
-    void shouldKeepConfirmedStepsWhenCurrentStepFails() {
+    void shouldFailCurrentBookingStepAndFailOrder() {
         CompositeOrder order = CompositeOrder.create();
         order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
         order.startProcessing();
-        BookingStep confirmedStep = order.startNextBookingStep().orElseThrow();
-        confirmedStep.confirm("flight-123");
-        order.startNextBookingStep().orElseThrow();
 
-        order.failCurrentBookingStep();
+        BookingStep step = order.startNextBookingStep().orElseThrow();
+        order.failCurrentBookingStep("500", "Gateway Timeout", "Попробуйте позже", "{\"code\":500}");
 
-        assertEquals(BookingStatus.CONFIRMED, confirmedStep.getStatus());
-    }
+        assertEquals(BookingStatus.FAILED, step.getStatus());
+        assertEquals("500", step.getErrorCode());
+        assertEquals("Gateway Timeout", step.getErrorMessage());
+        assertEquals("Попробуйте позже", step.getUserMessage());
+        assertEquals("{\"code\":500}", step.getErrorDetails());
 
-    @Test
-    void shouldKeepPendingStepsWhenCurrentStepFails() {
-        CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
-        order.startProcessing();
-        order.startNextBookingStep().orElseThrow();
-        BookingStep pendingStep = order.getBookingSteps().get(1);
-
-        order.failCurrentBookingStep();
-
-        assertEquals(BookingStatus.PENDING, pendingStep.getStatus());
-    }
-
-    @Test
-    void shouldNotStartNextStepAfterOrderFailed() {
-        CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
-        order.startProcessing();
-        order.startNextBookingStep().orElseThrow();
-
-        order.failCurrentBookingStep();
-
-        assertTrue(order.startNextBookingStep().isEmpty());
-        assertEquals(BookingStatus.PENDING, order.getBookingSteps().get(1).getStatus());
+        assertEquals(OrderStatus.FAILED, order.getStatus());
+        assertEquals("Gateway Timeout", order.getFailureReason());
+        assertEquals("Попробуйте позже", order.getUserMessage());
     }
 
     @Test
@@ -187,7 +157,8 @@ class CompositeOrderTest {
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                order::failCurrentBookingStep);
+                order::failCurrentBookingStep
+        );
         assertEquals(OrderStatus.PROCESSING, order.getStatus());
         assertEquals(BookingStatus.PENDING, order.getBookingSteps().getFirst().getStatus());
     }
@@ -199,136 +170,23 @@ class CompositeOrderTest {
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                order::failCurrentBookingStep);
+                order::failCurrentBookingStep
+        );
         assertEquals(OrderStatus.NEW, order.getStatus());
-        assertEquals(BookingStatus.PENDING, order.getBookingSteps().getFirst().getStatus());
     }
 
     @Test
-    void shouldCompensateConfirmedBookingSteps() {
+    void shouldStartCancellingFromProcessing() {
         CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
-        order.startProcessing();
-        BookingStep flightStep = order.startNextBookingStep().orElseThrow();
-        flightStep.confirm("flight-123");
-        BookingStep hotelStep = order.startNextBookingStep().orElseThrow();
-        hotelStep.confirm("hotel-123");
-        order.fail();
-
-        order.compensateConfirmedBookings();
-
-        assertEquals(BookingStatus.CANCELLED, flightStep.getStatus());
-        assertEquals(BookingStatus.CANCELLED, hotelStep.getStatus());
-    }
-
-    @Test
-    void shouldKeepFailedStepAfterCompensation() {
-        CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-        order.startProcessing();
-        BookingStep failedStep = order.startNextBookingStep().orElseThrow();
-        order.failCurrentBookingStep();
-
-        order.compensateConfirmedBookings();
-
-        assertEquals(BookingStatus.FAILED, failedStep.getStatus());
-    }
-
-    @Test
-    void shouldKeepPendingStepsAfterCompensation() {
-        CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
-        order.startProcessing();
-        order.startNextBookingStep().orElseThrow();
-        BookingStep pendingStep = order.getBookingSteps().get(1);
-        order.failCurrentBookingStep();
-
-        order.compensateConfirmedBookings();
-
-        assertEquals(BookingStatus.PENDING, pendingStep.getStatus());
-    }
-
-    @Test
-    void shouldCancelOrderAfterCompensation() {
-        CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
-        order.startProcessing();
-        BookingStep confirmedStep = order.startNextBookingStep().orElseThrow();
-        confirmedStep.confirm("flight-123");
-        order.startNextBookingStep().orElseThrow();
-        order.failCurrentBookingStep();
-
-        order.compensateConfirmedBookings();
-
-        assertEquals(OrderStatus.CANCELLED, order.getStatus());
-    }
-
-    @Test
-    void shouldCompensateConfirmedStepsInReverseOrder() {
-        CompositeOrder order = CompositeOrder.create();
-        List<BookingType> compensationOrder = new ArrayList<>();
-        BookingStep flightStep = new RecordingBookingStep(
-                order, BookingType.FLIGHT, compensationOrder);
-        BookingStep hotelStep = new RecordingBookingStep(
-                order, BookingType.HOTEL, compensationOrder);
-        order.getBookingSteps().add(flightStep);
-        order.getBookingSteps().add(hotelStep);
-        order.startProcessing();
-        flightStep.startProcessing();
-        flightStep.confirm("flight-123");
-        hotelStep.startProcessing();
-        hotelStep.confirm("hotel-123");
-        order.fail();
-
-        order.compensateConfirmedBookings();
-
-        assertEquals(
-                List.of(BookingType.HOTEL, BookingType.FLIGHT),
-                compensationOrder);
-    }
-
-    @Test
-    void shouldCompleteCompensationWhenNoConfirmedSteps() {
-        CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-        order.startProcessing();
-        BookingStep failedStep = order.startNextBookingStep().orElseThrow();
-        order.failCurrentBookingStep();
-
-        order.compensateConfirmedBookings();
-
-        assertEquals(BookingStatus.FAILED, failedStep.getStatus());
-        assertEquals(OrderStatus.CANCELLED, order.getStatus());
-    }
-
-    @Test
-    void shouldRejectCompensationWhenOrderIsNotFailed() {
-        CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-
-        assertThrows(
-                InvalidStateTransitionException.class,
-                order::compensateConfirmedBookings);
-        assertEquals(OrderStatus.NEW, order.getStatus());
-        assertEquals(BookingStatus.PENDING, order.getBookingSteps().getFirst().getStatus());
-    }
-
-    @Test
-    void shouldCancelProcessingOrder() {
-        CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
         order.startProcessing();
 
-        order.cancelManually();
+        order.startCancelling();
 
-        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        assertEquals(OrderStatus.CANCELLING, order.getStatus());
     }
 
     @Test
-    void shouldCancelCompletedOrder() {
+    void shouldStartCancellingFromCompleted() {
         CompositeOrder order = CompositeOrder.create();
         order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
         order.startProcessing();
@@ -336,78 +194,33 @@ class CompositeOrderTest {
         step.confirm("flight-123");
         order.complete();
 
-        order.cancelManually();
+        order.startCancelling();
+
+        assertEquals(OrderStatus.CANCELLING, order.getStatus());
+    }
+
+    @Test
+    void shouldStartCancellingFromFailed() {
+        CompositeOrder order = CompositeOrder.create();
+        order.startProcessing();
+        order.fail();
+
+        order.startCancelling();
+
+        assertEquals(OrderStatus.CANCELLING, order.getStatus());
+    }
+
+    @Test
+    void shouldCancelOrderFromCancelling() {
+        CompositeOrder order = CompositeOrder.create();
+        order.startProcessing();
+        order.startCancelling();
+
+        order.cancel("Отменено пользователем", "Заказ отменен.");
 
         assertEquals(OrderStatus.CANCELLED, order.getStatus());
-    }
-
-    @Test
-    void shouldCancelConfirmedSteps() {
-        CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
-        order.startProcessing();
-        BookingStep flightStep = order.startNextBookingStep().orElseThrow();
-        flightStep.confirm("flight-123");
-        BookingStep hotelStep = order.startNextBookingStep().orElseThrow();
-        hotelStep.confirm("hotel-123");
-
-        order.cancelManually();
-
-        assertEquals(BookingStatus.CANCELLED, flightStep.getStatus());
-        assertEquals(BookingStatus.CANCELLED, hotelStep.getStatus());
-    }
-
-    @Test
-    void shouldCancelConfirmedStepsInReverseOrder() {
-        CompositeOrder order = CompositeOrder.create();
-        List<BookingType> cancellationOrder = new ArrayList<>();
-        BookingStep flightStep = new RecordingBookingStep(
-                order, BookingType.FLIGHT, cancellationOrder);
-        BookingStep hotelStep = new RecordingBookingStep(
-                order, BookingType.HOTEL, cancellationOrder);
-        order.getBookingSteps().add(flightStep);
-        order.getBookingSteps().add(hotelStep);
-        order.startProcessing();
-        flightStep.startProcessing();
-        flightStep.confirm("flight-123");
-        hotelStep.startProcessing();
-        hotelStep.confirm("hotel-123");
-
-        order.cancelManually();
-
-        assertEquals(
-                List.of(BookingType.HOTEL, BookingType.FLIGHT),
-                cancellationOrder);
-    }
-
-    @Test
-    void shouldKeepPendingStepsWhenOrderCancelled() {
-        CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
-        order.startProcessing();
-        BookingStep confirmedStep = order.startNextBookingStep().orElseThrow();
-        confirmedStep.confirm("flight-123");
-        BookingStep pendingStep = order.getBookingSteps().get(1);
-
-        order.cancelManually();
-
-        assertEquals(BookingStatus.CANCELLED, confirmedStep.getStatus());
-        assertEquals(BookingStatus.PENDING, pendingStep.getStatus());
-    }
-
-    @Test
-    void shouldKeepProcessingStepWhenOrderCancelled() {
-        CompositeOrder order = CompositeOrder.create();
-        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
-        order.startProcessing();
-        BookingStep processingStep = order.startNextBookingStep().orElseThrow();
-
-        order.cancelManually();
-
-        assertEquals(BookingStatus.PROCESSING, processingStep.getStatus());
-        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        assertEquals("Отменено пользователем", order.getFailureReason());
+        assertEquals("Заказ отменен.", order.getUserMessage());
     }
 
     @Test
@@ -416,44 +229,77 @@ class CompositeOrderTest {
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                order::cancelManually);
+                order::startCancelling
+        );
+        assertThrows(
+                InvalidStateTransitionException.class,
+                order::cancel
+        );
         assertEquals(OrderStatus.NEW, order.getStatus());
     }
 
     @Test
-    void shouldRejectCancellationFromCancellingStatus() {
+    void shouldRejectCancelWhenNotCancelling() {
         CompositeOrder order = CompositeOrder.create();
         order.startProcessing();
-        order.startCancelling();
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                order::cancelManually);
-        assertEquals(OrderStatus.CANCELLING, order.getStatus());
+                order::cancel
+        );
+        assertEquals(OrderStatus.PROCESSING, order.getStatus());
     }
 
     @Test
-    void shouldRejectCancellationFromCancelledStatus() {
+    void shouldRejectStartProcessingFromProcessing() {
         CompositeOrder order = CompositeOrder.create();
         order.startProcessing();
-        order.cancelManually();
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                order::cancelManually);
-        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+                order::startProcessing
+        );
     }
 
     @Test
-    void shouldCancelFailedOrder() {
+    void shouldRejectStartProcessingFromCompletedWithoutPendingSteps() {
         CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.startProcessing();
+        BookingStep step = order.startNextBookingStep().orElseThrow();
+        step.confirm("flight-123");
+        order.complete();
 
+        assertThrows(
+                InvalidStateTransitionException.class,
+                order::startProcessing
+        );
+    }
+
+    @Test
+    void shouldAllowStartProcessingFromCompletedWithPendingSteps() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.startProcessing();
+        BookingStep step1 = order.startNextBookingStep().orElseThrow();
+        step1.confirm("flight-123");
+        order.complete();
+
+        // Добавили новый шаг PENDING
+        order.addBookingStep(BookingType.HOTEL, UUID.randomUUID());
+
+        order.startProcessing();
+        assertEquals(OrderStatus.PROCESSING, order.getStatus());
+    }
+
+    @Test
+    void shouldAllowStartProcessingFromFailed() {
+        CompositeOrder order = CompositeOrder.create();
         order.startProcessing();
         order.fail();
-        order.startCancelling();
-        order.cancel();
 
-        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        order.startProcessing();
+        assertEquals(OrderStatus.PROCESSING, order.getStatus());
     }
 
     @Test
@@ -462,18 +308,8 @@ class CompositeOrderTest {
 
         assertThrows(
                 InvalidStateTransitionException.class,
-                order::complete);
-    }
-
-    @Test
-    void shouldRejectSecondProcessingStart() {
-        CompositeOrder order = CompositeOrder.create();
-
-        order.startProcessing();
-
-        assertThrows(
-                InvalidStateTransitionException.class,
-                order::startProcessing);
+                order::complete
+        );
     }
 
     @Test
@@ -501,22 +337,95 @@ class CompositeOrderTest {
         assertThrows(InvalidStateTransitionException.class, order::resetProcessingStepsToPending);
     }
 
-    private static class RecordingBookingStep extends BookingStep {
+    @Test
+    void shouldAddPassengerAndCustomerContact() {
+        CompositeOrder order = CompositeOrder.create();
+        order.addPassenger(
+                PassengerType.ADULT,
+                "Иван",
+                "Иванов",
+                LocalDate.of(1990, 1, 1),
+                "RU",
+                "PASSPORT",
+                "1234567890"
+        );
+        order.setCustomerContact("+79991234567", "ivan@example.com");
 
-        private final List<BookingType> compensationOrder;
+        assertEquals(1, order.getPassengers().size());
+        Passenger passenger = order.getPassengers().getFirst();
+        assertEquals("Иван", passenger.getFirstName());
+        assertEquals("Иванов", passenger.getLastName());
+        assertEquals(PassengerType.ADULT, passenger.getType());
 
-        private RecordingBookingStep(
-                CompositeOrder order,
-                BookingType type,
-                List<BookingType> compensationOrder) {
-            super(order, type, UUID.randomUUID());
-            this.compensationOrder = compensationOrder;
-        }
+        assertNotNull(order.getCustomerContact());
+        assertEquals("+79991234567", order.getCustomerContact().getPhone());
+        assertEquals("ivan@example.com", order.getCustomerContact().getEmail());
+    }
 
-        @Override
-        public void startCancelling() {
-            compensationOrder.add(getType());
-            super.startCancelling();
-        }
+    @Test
+    void shouldRecordOperationHistory() {
+        CompositeOrder order = CompositeOrder.create();
+        var history = order.recordOperation(
+                null,
+                null,
+                "ORDER_CREATE",
+                "NEW",
+                201,
+                null,
+                null,
+                "Заказ создан",
+                null,
+                null
+        );
+
+        assertNotNull(history);
+        assertEquals(1, order.getOperationHistory().size());
+        assertEquals("ORDER_CREATE", order.getOperationHistory().getFirst().getOperationType());
+        assertEquals("NEW", order.getOperationHistory().getFirst().getStatus());
+    }
+
+    @Test
+    void shouldReplaceBookingStepAndRecalculatePricing() {
+        CompositeOrder order = CompositeOrder.create();
+        BookingStep flight = order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID(), new BigDecimal("10000.00"));
+        BookingStep hotel = order.addBookingStep(BookingType.HOTEL, UUID.randomUUID(), new BigDecimal("5000.00"));
+
+        UUID stepId = UUID.randomUUID();
+        org.springframework.test.util.ReflectionTestUtils.setField(hotel, "id", stepId);
+
+        UUID newHotelResourceId = UUID.randomUUID();
+        HotelRoomRequest roomReq = new HotelRoomRequest("Люкс", "С завтраком", new BigDecimal("8000.00"), "Завтрак включен");
+
+        order.replaceBookingStep(
+                stepId,
+                newHotelResourceId,
+                new BigDecimal("8000.00"),
+                List.of(roomReq)
+        );
+
+        assertEquals(newHotelResourceId, hotel.getResourceId());
+        assertEquals(BookingStatus.PENDING, hotel.getStatus());
+        assertEquals(new BigDecimal("8000.00"), hotel.getPrice());
+        assertEquals(1, hotel.getRoomsCount());
+
+        // Base price: 10000 + 8000 = 18000.00
+        assertEquals(new BigDecimal("18000.00"), order.getBasePrice());
+    }
+
+    @Test
+    void shouldRejectReplaceBookingStepWhenOrderCancelled() {
+        CompositeOrder order = CompositeOrder.create();
+        BookingStep hotel = order.addBookingStep(BookingType.HOTEL, UUID.randomUUID(), new BigDecimal("5000.00"));
+        UUID stepId = UUID.randomUUID();
+        org.springframework.test.util.ReflectionTestUtils.setField(hotel, "id", stepId);
+
+        order.startProcessing();
+        order.startCancelling();
+        order.cancel();
+
+        assertThrows(
+                InvalidStateTransitionException.class,
+                () -> order.replaceBookingStep(stepId, UUID.randomUUID(), new BigDecimal("6000.00"), null)
+        );
     }
 }

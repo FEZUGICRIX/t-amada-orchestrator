@@ -416,3 +416,108 @@ Accept: text/event-stream
 GET {{baseUrl}}/api/v1/orders/{{orderId}}/events?start=true
 Accept: text/event-stream
 
+
+### =========================
+### PARTIAL COMPENSATION & STEP MODIFICATION TESTS
+### =========================
+
+### 20. Заменить отель на альтернативный с сохранением выкупленных билетов (POST /hotel/replace)
+POST {{baseUrl}}/api/v1/orders/{{orderId}}/hotel/replace
+Content-Type: application/json
+
+{
+  "resourceId": "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a99",
+  "price": 12500.00,
+  "roomsCount": 1,
+  "rooms": [
+    {
+      "category": "Делюкс",
+      "tariff": "С завтраком",
+      "price": 12500.00,
+      "stayConditions": "Завтрак включен, бесплатная отмена за 24 часа"
+    }
+  ]
+}
+
+
+### 21. Заменить отель методом PUT (PUT /hotel)
+PUT {{baseUrl}}/api/v1/orders/{{orderId}}/hotel
+Content-Type: application/json
+
+{
+  "resourceId": "b2eebc99-9c0b-4ef8-bb6d-6bb9bd380a88",
+  "price": 14000.00
+}
+
+
+### 22. Модифицировать шаг бронирования (универсальный PUT /steps/{stepId})
+PUT {{baseUrl}}/api/v1/orders/{{orderId}}/steps/0199f000-0000-7000-8000-000000000002
+Content-Type: application/json
+
+{
+  "type": "HOTEL",
+  "resourceId": "b3eebc99-9c0b-4ef8-bb6d-6bb9bd380a77",
+  "price": 16000.00
+}
+
+
+### 23. Отменить конкретный шаг бронирования (POST /steps/{stepId}/cancel)
+POST {{baseUrl}}/api/v1/orders/{{orderId}}/steps/0199f000-0000-7000-8000-000000000002/cancel
+
+
+### 24. Возобновить оркестрацию заказа после замены отеля (из статуса FAILED или COMPLETED)
+POST {{baseUrl}}/api/v1/orders/{{orderId}}/start
+
+
+### 25. Создать заказ и сразу запустить исполнение (Create-and-Start в один запрос)
+POST {{baseUrl}}/api/v1/orders?start=true
+Content-Type: application/json
+
+{
+  "bookings": [
+    {
+      "type": "FLIGHT",
+      "resourceId": "{{flightResourceId}}"
+    },
+    {
+      "type": "HOTEL",
+      "resourceId": "{{hotelResourceId}}"
+    }
+  ]
+}
+
+
+### 26. Запустить оркестрацию асинхронно через RFC 7240 Prefer Header (единый /start)
+POST {{baseUrl}}/api/v1/orders/{{orderId}}/start
+Prefer: respond-async
+
+
+### 27. Универсальная модификация шага по типу (единый PUT /steps)
+PUT {{baseUrl}}/api/v1/orders/{{orderId}}/steps
+Content-Type: application/json
+
+{
+  "type": "HOTEL",
+  "resourceId": "b3eebc99-9c0b-4ef8-bb6d-6bb9bd380a77",
+  "price": 15500.00
+}
+
+
+### 28. Универсальная отмена шага через единый POST /cancel с телом
+POST {{baseUrl}}/api/v1/orders/{{orderId}}/cancel
+Content-Type: application/json
+
+{
+  "stepId": "0199f000-0000-7000-8000-000000000002"
+}
+
+
+### 29. Каноническая REST-отмена заказа (DELETE /orders/{id})
+DELETE {{baseUrl}}/api/v1/orders/{{orderId}}
+
+
+### 30. Каноническая REST-отмена шага бронирования (DELETE /orders/{id}/steps/{stepId})
+DELETE {{baseUrl}}/api/v1/orders/{{orderId}}/steps/0199f000-0000-7000-8000-000000000002
+
+
+

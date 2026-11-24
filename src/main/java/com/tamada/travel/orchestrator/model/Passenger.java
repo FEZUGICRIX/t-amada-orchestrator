@@ -48,7 +48,8 @@ public class Passenger {
     @Column(name = "document_type", nullable = false, length = 100)
     private String documentType;
 
-    @Column(name = "document_number", nullable = false, length = 100)
+    @Column(name = "document_number", nullable = false, length = 255)
+    @Convert(converter = com.tamada.travel.orchestrator.service.security.EncryptedStringConverter.class)
     private String documentNumber;
 
     @CreatedDate

@@ -60,10 +60,14 @@ public class RestBookingClient implements BookingClient {
     @Override
     public BookingResponse book(BookingRequest request) {
         try {
-            return restClient.post()
+            var requestSpec = restClient.post()
                     .uri(bookingPath)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(request)
+                    .contentType(MediaType.APPLICATION_JSON);
+            String correlationId = com.tamada.travel.orchestrator.observability.CorrelationIdContext.getCorrelationId();
+            if (correlationId != null && !correlationId.isBlank()) {
+                requestSpec.header(com.tamada.travel.orchestrator.observability.CorrelationIdContext.HEADER_CORRELATION_ID, correlationId);
+            }
+            return requestSpec.body(request)
                     .retrieve()
                     .body(BookingResponse.class);
         } catch (RestClientResponseException exception) {
@@ -76,10 +80,14 @@ public class RestBookingClient implements BookingClient {
     @Override
     public CancelBookingResponse cancel(CancelBookingRequest request) {
         try {
-            return restClient.post()
+            var requestSpec = restClient.post()
                     .uri(cancellationPath)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(request)
+                    .contentType(MediaType.APPLICATION_JSON);
+            String correlationId = com.tamada.travel.orchestrator.observability.CorrelationIdContext.getCorrelationId();
+            if (correlationId != null && !correlationId.isBlank()) {
+                requestSpec.header(com.tamada.travel.orchestrator.observability.CorrelationIdContext.HEADER_CORRELATION_ID, correlationId);
+            }
+            return requestSpec.body(request)
                     .retrieve()
                     .body(CancelBookingResponse.class);
         } catch (RestClientResponseException exception) {

@@ -30,6 +30,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(CompositeOrderController.class)
@@ -714,5 +715,194 @@ class CompositeOrderControllerTest {
                                 """.formatted(hotelId)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void shouldReplaceHotelSuccessfully() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+        UUID newHotelId = UUID.randomUUID();
+
+        OrderResponse response = new OrderResponse(
+                orderId,
+                OrderStatus.FAILED,
+                Instant.parse("2026-10-03T10:00:00Z"),
+                Instant.parse("2026-10-03T10:00:00Z"),
+                new BigDecimal("12000.00"),
+                new BigDecimal("80.40"),
+                new BigDecimal("12080.40"),
+                List.of(new BookingStepResponse(
+                        stepId,
+                        BookingType.HOTEL,
+                        newHotelId,
+                        BookingStatus.PENDING,
+                        null,
+                        new BigDecimal("12000.00")
+                )),
+                List.of(),
+                null
+        );
+
+        when(service.replaceHotel(any(), any())).thenReturn(response);
+
+        mockMvc.perform(
+                post("/api/v1/orders/{id}/hotel/replace", orderId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "resourceId": "%s",
+                                  "price": 12000.00
+                                }
+                                """.formatted(newHotelId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(orderId.toString()))
+                .andExpect(jsonPath("$.bookingSteps[0].resourceId").value(newHotelId.toString()))
+                .andExpect(jsonPath("$.bookingSteps[0].status").value("PENDING"));
+    }
+
+    @Test
+    void shouldReplaceHotelViaPut() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+        UUID newHotelId = UUID.randomUUID();
+
+        OrderResponse response = new OrderResponse(
+                orderId,
+                OrderStatus.FAILED,
+                Instant.parse("2026-10-03T10:00:00Z"),
+                Instant.parse("2026-10-03T10:00:00Z"),
+                new BigDecimal("12000.00"),
+                new BigDecimal("80.40"),
+                new BigDecimal("12080.40"),
+                List.of(new BookingStepResponse(
+                        stepId,
+                        BookingType.HOTEL,
+                        newHotelId,
+                        BookingStatus.PENDING,
+                        null,
+                        new BigDecimal("12000.00")
+                )),
+                List.of(),
+                null
+        );
+
+        when(service.replaceHotel(any(), any())).thenReturn(response);
+
+        mockMvc.perform(
+                put("/api/v1/orders/{id}/hotel", orderId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "resourceId": "%s",
+                                  "price": 12000.00
+                                }
+                                """.formatted(newHotelId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(orderId.toString()))
+                .andExpect(jsonPath("$.bookingSteps[0].resourceId").value(newHotelId.toString()))
+                .andExpect(jsonPath("$.bookingSteps[0].status").value("PENDING"));
+    }
+
+    @Test
+    void shouldReplaceStepSuccessfully() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+        UUID newResourceId = UUID.randomUUID();
+
+        OrderResponse response = new OrderResponse(
+                orderId,
+                OrderStatus.PROCESSING,
+                Instant.parse("2026-10-03T10:00:00Z"),
+                Instant.parse("2026-10-03T10:00:00Z"),
+                List.of(new BookingStepResponse(
+                        stepId,
+                        BookingType.HOTEL,
+                        newResourceId,
+                        BookingStatus.PENDING,
+                        null
+                ))
+        );
+
+        when(service.replaceStep(any(), any(), any())).thenReturn(response);
+
+        mockMvc.perform(
+                put("/api/v1/orders/{id}/steps/{stepId}", orderId, stepId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "type": "HOTEL",
+                                  "resourceId": "%s",
+                                  "price": 10000.00
+                                }
+                                """.formatted(newResourceId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(orderId.toString()))
+                .andExpect(jsonPath("$.bookingSteps[0].resourceId").value(newResourceId.toString()));
+    }
+
+    @Test
+    void shouldCancelStepSuccessfully() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+
+        OrderResponse response = new OrderResponse(
+                orderId,
+                OrderStatus.PROCESSING,
+                Instant.parse("2026-10-03T10:00:00Z"),
+                Instant.parse("2026-10-03T10:00:00Z"),
+                List.of(new BookingStepResponse(
+                        stepId,
+                        BookingType.HOTEL,
+                        UUID.randomUUID(),
+                        BookingStatus.CANCELLED,
+                        null
+                ))
+        );
+
+        when(service.cancelStep(orderId, stepId)).thenReturn(response);
+
+        mockMvc.perform(
+                post("/api/v1/orders/{id}/steps/{stepId}/cancel", orderId, stepId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bookingSteps[0].status").value("CANCELLED"));
+    }
+
+    @Test
+    void shouldRejectReplaceHotelWithNegativePrice() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        UUID newHotelId = UUID.randomUUID();
+
+        mockMvc.perform(
+                post("/api/v1/orders/{id}/hotel/replace", orderId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "resourceId": "%s",
+                                  "price": -100.00
+                                }
+                                """.formatted(newHotelId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void shouldRejectReplaceHotelOnCancelledOrder() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        UUID newHotelId = UUID.randomUUID();
+
+        when(service.replaceHotel(any(), any()))
+                .thenThrow(new InvalidStateTransitionException("Cannot modify order in status CANCELLED"));
+
+        mockMvc.perform(
+                post("/api/v1/orders/{id}/hotel/replace", orderId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "resourceId": "%s",
+                                  "price": 12000.00
+                                }
+                                """.formatted(newHotelId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409));
     }
 }

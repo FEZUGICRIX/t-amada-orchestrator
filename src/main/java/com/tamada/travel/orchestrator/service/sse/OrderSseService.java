@@ -7,6 +7,8 @@ import com.tamada.travel.orchestrator.model.BookingType;
 import com.tamada.travel.orchestrator.model.CompositeOrder;
 import com.tamada.travel.orchestrator.model.OrderStatus;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -22,6 +24,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /**
  * Сервис управления подписками и отправки Server-Sent Events (SSE) клиентам.
  * Передает события статуса заказа, шагов бронирования, детальных ошибок поставщиков и причин компенсации.
+ * Поддерживает абстракцию {@link OrderEventBroadcaster} для распределенной рассылки через Redis Pub/Sub
+ * и периодическую отправку keep-alive комментариев для предотвращения разрыва прокси-соединений.
  */
 @Service
 @Slf4j
@@ -30,6 +34,17 @@ public class OrderSseService {
     private static final long DEFAULT_TIMEOUT_MS = Duration.ofMinutes(10).toMillis();
 
     private final Map<UUID, List<SseEmitter>> emitters = new ConcurrentHashMap<>();
+    private final OrderEventBroadcaster broadcaster;
+
+    @Autowired
+    public OrderSseService(@Autowired(required = false) OrderEventBroadcaster broadcaster) {
+        this.broadcaster = broadcaster != null ? broadcaster : new LocalOrderEventBroadcaster();
+        this.broadcaster.setConsumer(this::deliverToLocalEmitters);
+    }
+
+    public OrderSseService() {
+        this(new LocalOrderEventBroadcaster());
+    }
 
     /**
      * Создает подписку на события заказа для клиента.
@@ -159,13 +174,37 @@ public class OrderSseService {
     }
 
     private void publish(UUID orderId, OrderEvent event) {
-        List<SseEmitter> orderEmitters = emitters.get(orderId);
+        if (broadcaster != null) {
+            broadcaster.broadcast(event);
+        } else {
+            deliverToLocalEmitters(event);
+        }
+    }
+
+    public void deliverToLocalEmitters(OrderEvent event) {
+        if (event == null || event.orderId() == null) {
+            return;
+        }
+        List<SseEmitter> orderEmitters = emitters.get(event.orderId());
         if (orderEmitters == null || orderEmitters.isEmpty()) {
             return;
         }
 
         for (SseEmitter emitter : orderEmitters) {
             sendToEmitter(emitter, event);
+        }
+    }
+
+    @Scheduled(fixedDelay = 25000)
+    public void sendHeartbeats() {
+        for (List<SseEmitter> emitterList : emitters.values()) {
+            for (SseEmitter emitter : emitterList) {
+                try {
+                    emitter.send(SseEmitter.event().comment("keep-alive"));
+                } catch (Exception ex) {
+                    // Handled by onError / onTimeout
+                }
+            }
         }
     }
 

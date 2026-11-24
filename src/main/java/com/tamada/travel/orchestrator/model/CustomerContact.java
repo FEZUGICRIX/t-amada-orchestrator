@@ -28,10 +28,12 @@ public class CustomerContact {
     @JoinColumn(name = "composite_order_id", nullable = false, unique = true)
     private CompositeOrder compositeOrder;
 
-    @Column(nullable = false, length = 50)
+    @Column(nullable = false, length = 255)
+    @Convert(converter = com.tamada.travel.orchestrator.service.security.EncryptedStringConverter.class)
     private String phone;
 
     @Column(nullable = false, length = 255)
+    @Convert(converter = com.tamada.travel.orchestrator.service.security.EncryptedStringConverter.class)
     private String email;
 
     @CreatedDate

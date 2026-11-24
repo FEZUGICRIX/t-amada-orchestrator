@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -41,8 +42,8 @@ public class StepExecutor {
             UUID resourceId
     ) {
         try {
-            BookingClient client = clientRegistry.getClient(type);
-            BookingResponse response = client.book(new BookingRequest(resourceId, bookingReference));
+            BookingRequest request = buildBookingRequest(orderId, bookingReference, type, resourceId);
+            BookingResponse response = clientRegistry.book(type, request);
 
             responseValidator.validateBookingResponse(bookingReference, response);
 
@@ -73,6 +74,46 @@ public class StepExecutor {
                     exception.getMessage()
             );
             return new StepExecutionResult.Failure(exception);
+        }
+    }
+
+    private BookingRequest buildBookingRequest(UUID orderId, UUID bookingReference, BookingType type, UUID resourceId) {
+        try {
+            return inTransaction(() -> {
+                CompositeOrder order = findOrder(orderId);
+                BookingStep step = order.findBookingStep(bookingReference).orElse(null);
+                java.math.BigDecimal price = (step != null && step.getPrice() != null && step.getPrice().compareTo(java.math.BigDecimal.ZERO) > 0)
+                        ? step.getPrice()
+                        : null;
+
+                List<BookingRequest.RoomDetail> rooms = (step != null && step.getRooms() != null && !step.getRooms().isEmpty())
+                        ? step.getRooms().stream()
+                        .map(r -> new BookingRequest.RoomDetail(r.getId(), r.getCategory(), r.getTariff(), r.getPrice(), r.getStayConditions()))
+                        .toList()
+                        : null;
+
+                List<BookingRequest.PassengerDetail> passengers = (order.getPassengers() != null && !order.getPassengers().isEmpty())
+                        ? order.getPassengers().stream()
+                        .map(p -> new BookingRequest.PassengerDetail(
+                                p.getId(),
+                                p.getType() != null ? p.getType().name() : null,
+                                p.getFirstName(),
+                                p.getLastName(),
+                                p.getBirthDate(),
+                                p.getCitizenship(),
+                                p.getDocumentType(),
+                                p.getDocumentNumber()))
+                        .toList()
+                        : null;
+
+                BookingRequest.CustomerContactDetail contact = (order.getCustomerContact() != null)
+                        ? new BookingRequest.CustomerContactDetail(order.getCustomerContact().getPhone(), order.getCustomerContact().getEmail())
+                        : null;
+
+                return new BookingRequest(resourceId, bookingReference, price, "RUB", passengers, rooms, contact);
+            });
+        } catch (Exception ex) {
+            return new BookingRequest(resourceId, bookingReference);
         }
     }
 

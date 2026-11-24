@@ -59,12 +59,22 @@ public class OutboxMessage {
         this.status = OutboxStatus.PENDING;
     }
 
-    public void markProcessed() {
-        this.status = OutboxStatus.PROCESSED;
+    public void markSent() {
+        this.status = OutboxStatus.SENT;
         this.processedAt = Instant.now();
+    }
+
+    public void markProcessed() {
+        markSent();
     }
 
     public void markFailed() {
         this.status = OutboxStatus.FAILED;
+        this.processedAt = Instant.now();
+    }
+
+    public void markDeadLetter() {
+        this.status = OutboxStatus.DEAD_LETTER;
+        this.processedAt = Instant.now();
     }
 }

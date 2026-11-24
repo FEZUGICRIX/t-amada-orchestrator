@@ -453,6 +453,101 @@ class BookingOrchestrationServiceTest {
         assertTrue(clients.get(BookingType.TRANSFER).requests().isEmpty());
     }
 
+    @Test
+    void shouldPreserveConfirmedFlightWhenHotelFailsWithPartialCompensationEnabled() {
+        service.setPartialCompensationEnabled(true);
+
+        CompositeOrder order = createOrder(
+                BookingType.FLIGHT,
+                BookingType.HOTEL,
+                BookingType.INSURANCE
+        );
+        BookingStep flightStep = order.getBookingSteps().get(0);
+        BookingStep hotelStep = order.getBookingSteps().get(1);
+        BookingStep insuranceStep = order.getBookingSteps().get(2);
+        UUID flightExternalId = stubSuccessfulBooking(flightStep);
+        stubFailedBooking(hotelStep);
+
+        service.orchestrate(orderId);
+
+        // FLIGHT remains CONFIRMED and is NOT compensated
+        assertEquals(BookingStatus.CONFIRMED, flightStep.getStatus());
+        assertEquals(flightExternalId.toString(), flightStep.getExternalId());
+        assertTrue(clients.get(BookingType.FLIGHT).cancellationRequests().isEmpty());
+
+        // HOTEL is FAILED
+        assertEquals(BookingStatus.FAILED, hotelStep.getStatus());
+
+        // Order is FAILED (NOT CANCELLED)
+        assertEquals(OrderStatus.FAILED, order.getStatus());
+
+        // INSURANCE remains PENDING
+        assertEquals(BookingStatus.PENDING, insuranceStep.getStatus());
+        assertTrue(clients.get(BookingType.INSURANCE).requests().isEmpty());
+    }
+
+    @Test
+    void shouldResumeOrchestrationFromFailedStatusAndCompleteOrder() {
+        service.setPartialCompensationEnabled(true);
+
+        CompositeOrder order = createOrder(
+                BookingType.FLIGHT,
+                BookingType.HOTEL
+        );
+        BookingStep flightStep = order.getBookingSteps().get(0);
+        BookingStep hotelStep = order.getBookingSteps().get(1);
+        UUID flightExternalId = stubSuccessfulBooking(flightStep);
+        stubFailedBooking(hotelStep);
+
+        // 1. Initial attempt: hotel fails, order in FAILED, flight is preserved
+        service.orchestrate(orderId);
+        assertEquals(OrderStatus.FAILED, order.getStatus());
+        assertEquals(BookingStatus.CONFIRMED, flightStep.getStatus());
+        assertEquals(BookingStatus.FAILED, hotelStep.getStatus());
+
+        // 2. User replaces hotel with alternative hotel
+        UUID newHotelResourceId = UUID.randomUUID();
+        order.replaceBookingStep(hotelStep.getId(), newHotelResourceId, null, null);
+        assertEquals(BookingStatus.PENDING, hotelStep.getStatus());
+        assertEquals(newHotelResourceId, hotelStep.getResourceId());
+
+        // 3. Stub successful booking for new hotel
+        UUID newHotelExternalId = stubSuccessfulBooking(hotelStep);
+
+        // 4. Re-orchestrate (resume) order
+        service.orchestrate(orderId);
+
+        // FLIGHT was not re-booked (only 1 booking request in history)
+        assertEquals(1, clients.get(BookingType.FLIGHT).requests().size());
+        assertEquals(BookingStatus.CONFIRMED, flightStep.getStatus());
+
+        // HOTEL is successfully confirmed
+        assertEquals(BookingStatus.CONFIRMED, hotelStep.getStatus());
+        assertEquals(newHotelExternalId.toString(), hotelStep.getExternalId());
+
+        // Order is now COMPLETED
+        assertEquals(OrderStatus.COMPLETED, order.getStatus());
+    }
+
+    @Test
+    void shouldPerformFullCompensationWhenFlightFailsWithPartialCompensationEnabled() {
+        service.setPartialCompensationEnabled(true);
+
+        CompositeOrder order = createOrder(
+                BookingType.FLIGHT,
+                BookingType.HOTEL
+        );
+        BookingStep flightStep = order.getBookingSteps().get(0);
+        BookingStep hotelStep = order.getBookingSteps().get(1);
+        stubFailedBooking(flightStep);
+
+        service.orchestrate(orderId);
+
+        // Flight failure must trigger full compensation and mark order CANCELLED
+        assertEquals(BookingStatus.FAILED, flightStep.getStatus());
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+    }
+
     private PartialFailure orchestratePartialFailure() {
         CompositeOrder order = createOrder(
                 BookingType.FLIGHT,

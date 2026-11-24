@@ -1,18 +1,23 @@
 package com.tamada.travel.orchestrator.service;
 
+import com.tamada.travel.orchestrator.dto.BookingStepResponse;
 import com.tamada.travel.orchestrator.dto.CreateBookingStepRequest;
 import com.tamada.travel.orchestrator.dto.CreateOrderRequest;
 import com.tamada.travel.orchestrator.dto.CustomerContactRequest;
 import com.tamada.travel.orchestrator.dto.HotelRoomRequest;
 import com.tamada.travel.orchestrator.dto.OrderResponse;
 import com.tamada.travel.orchestrator.dto.PassengerRequest;
+import com.tamada.travel.orchestrator.dto.ReplaceHotelRequest;
 import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
 import com.tamada.travel.orchestrator.exception.OrderNotFoundException;
+import com.tamada.travel.orchestrator.model.BookingStatus;
+import com.tamada.travel.orchestrator.model.BookingStep;
 import com.tamada.travel.orchestrator.model.BookingType;
 import com.tamada.travel.orchestrator.model.CompositeOrder;
 import com.tamada.travel.orchestrator.model.OrderStatus;
 import com.tamada.travel.orchestrator.model.PassengerType;
 import com.tamada.travel.orchestrator.repository.CompositeOrderRepository;
+import com.tamada.travel.orchestrator.service.orchestration.SagaCompensator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -40,6 +45,9 @@ class CompositeOrderServiceTest {
 
     @Mock
     private OutboxService outboxService;
+
+    @Mock
+    private SagaCompensator compensator;
 
     @InjectMocks
     private CompositeOrderService service;
@@ -305,7 +313,8 @@ class CompositeOrderServiceTest {
         UUID id = UUID.randomUUID();
         CompositeOrder order = CompositeOrder.create();
         order.startProcessing();
-        order.cancelManually();
+        order.startCancelling();
+        order.cancel();
 
         when(orchestrationService.cancel(id))
                 .thenReturn(order);
@@ -513,5 +522,156 @@ class CompositeOrderServiceTest {
                 () -> service.startOrderAsync(orderId)
         );
         verify(repository, never()).save(order);
+    }
+
+    @Test
+    void shouldStartOrderAsyncFromFailedStatusSuccessfully() {
+        UUID orderId = UUID.randomUUID();
+        CompositeOrder order = CompositeOrder.create();
+        org.springframework.test.util.ReflectionTestUtils.setField(order, "id", orderId);
+        order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID());
+        order.startProcessing();
+        order.fail("Previous failure", "Hotel failed");
+
+        when(repository.findById(orderId)).thenReturn(Optional.of(order));
+        when(repository.save(any(CompositeOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderResponse response = service.startOrderAsync(orderId);
+
+        assertNotNull(response);
+        assertEquals(OrderStatus.PROCESSING, response.status());
+        verify(repository).save(order);
+    }
+
+    @Test
+    void shouldReplaceHotelSuccessfullyWhenHotelFailed() {
+        UUID orderId = UUID.randomUUID();
+        UUID oldHotelId = UUID.randomUUID();
+        UUID newHotelId = UUID.randomUUID();
+
+        CompositeOrder order = CompositeOrder.create();
+        org.springframework.test.util.ReflectionTestUtils.setField(order, "id", orderId);
+        BookingStep flightStep = order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID(), new BigDecimal("15000.00"));
+        org.springframework.test.util.ReflectionTestUtils.setField(flightStep, "id", UUID.randomUUID());
+        BookingStep hotelStep = order.addBookingStep(BookingType.HOTEL, oldHotelId, new BigDecimal("8000.00"));
+        org.springframework.test.util.ReflectionTestUtils.setField(hotelStep, "id", UUID.randomUUID());
+
+        order.startProcessing();
+        flightStep.startProcessing();
+        flightStep.confirm("flight-ext-123");
+        hotelStep.startProcessing();
+        hotelStep.fail("409", "Not available", "Room not available", null);
+        order.fail("Room not available", "Room not available");
+
+        when(repository.findById(orderId)).thenReturn(Optional.of(order));
+        when(repository.save(any(CompositeOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReplaceHotelRequest request = new ReplaceHotelRequest(newHotelId, new BigDecimal("9500.00"));
+        OrderResponse response = service.replaceHotel(orderId, request);
+
+        assertNotNull(response);
+        BookingStepResponse updatedHotel = response.bookingSteps().stream()
+                .filter(s -> s.type() == BookingType.HOTEL)
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(newHotelId, updatedHotel.resourceId());
+        assertEquals(BookingStatus.PENDING, updatedHotel.status());
+        assertEquals(new BigDecimal("9500.00"), updatedHotel.price());
+        // Verify no compensator call because old hotel was FAILED, not CONFIRMED
+        verify(compensator, never()).compensateSingleStep(any(), any(), any(), any());
+        verify(repository).save(order);
+    }
+
+    @Test
+    void shouldReplaceHotelWithPartialCompensationWhenHotelConfirmed() {
+        UUID orderId = UUID.randomUUID();
+        UUID oldHotelId = UUID.randomUUID();
+        UUID newHotelId = UUID.randomUUID();
+        UUID hotelStepId = UUID.randomUUID();
+
+        CompositeOrder order = CompositeOrder.create();
+        org.springframework.test.util.ReflectionTestUtils.setField(order, "id", orderId);
+        BookingStep flightStep = order.addBookingStep(BookingType.FLIGHT, UUID.randomUUID(), new BigDecimal("15000.00"));
+        org.springframework.test.util.ReflectionTestUtils.setField(flightStep, "id", UUID.randomUUID());
+        BookingStep hotelStep = order.addBookingStep(BookingType.HOTEL, oldHotelId, new BigDecimal("8000.00"));
+        org.springframework.test.util.ReflectionTestUtils.setField(hotelStep, "id", hotelStepId);
+
+        order.startProcessing();
+        flightStep.startProcessing();
+        flightStep.confirm(UUID.randomUUID().toString());
+        hotelStep.startProcessing();
+        hotelStep.confirm(UUID.randomUUID().toString());
+        order.complete();
+
+        when(repository.findById(orderId)).thenReturn(Optional.of(order));
+        when(repository.save(any(CompositeOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReplaceHotelRequest request = new ReplaceHotelRequest(newHotelId, new BigDecimal("11000.00"));
+        OrderResponse response = service.replaceHotel(orderId, request);
+
+        assertNotNull(response);
+        // Verify partial compensation called for hotel
+        verify(compensator).compensateSingleStep(eq(orderId), eq(hotelStepId), any(), any());
+
+        BookingStepResponse updatedHotel = response.bookingSteps().stream()
+                .filter(s -> s.type() == BookingType.HOTEL)
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(newHotelId, updatedHotel.resourceId());
+        assertEquals(BookingStatus.PENDING, updatedHotel.status());
+        // Flight ticket is preserved
+        BookingStepResponse flight = response.bookingSteps().stream()
+                .filter(s -> s.type() == BookingType.FLIGHT)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(BookingStatus.CONFIRMED, flight.status());
+    }
+
+    @Test
+    void shouldReplaceStepSuccessfully() {
+        UUID orderId = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+        UUID newResourceId = UUID.randomUUID();
+
+        CompositeOrder order = CompositeOrder.create();
+        org.springframework.test.util.ReflectionTestUtils.setField(order, "id", orderId);
+        BookingStep transferStep = order.addBookingStep(BookingType.TRANSFER, UUID.randomUUID(), new BigDecimal("2000.00"));
+        org.springframework.test.util.ReflectionTestUtils.setField(transferStep, "id", stepId);
+
+        when(repository.findById(orderId)).thenReturn(Optional.of(order));
+        when(repository.save(any(CompositeOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CreateBookingStepRequest request = new CreateBookingStepRequest(BookingType.TRANSFER, newResourceId, new BigDecimal("2500.00"));
+        OrderResponse response = service.replaceStep(orderId, stepId, request);
+
+        assertNotNull(response);
+        BookingStepResponse updated = response.bookingSteps().getFirst();
+        assertEquals(newResourceId, updated.resourceId());
+        assertEquals(BookingStatus.PENDING, updated.status());
+        assertEquals(new BigDecimal("2500.00"), updated.price());
+    }
+
+    @Test
+    void shouldCancelStepSuccessfully() {
+        UUID orderId = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+
+        CompositeOrder order = CompositeOrder.create();
+        org.springframework.test.util.ReflectionTestUtils.setField(order, "id", orderId);
+        BookingStep step = order.addBookingStep(BookingType.HOTEL, UUID.randomUUID(), new BigDecimal("8000.00"));
+        org.springframework.test.util.ReflectionTestUtils.setField(step, "id", stepId);
+        order.startProcessing();
+        step.startProcessing();
+        step.confirm(UUID.randomUUID().toString());
+
+        when(repository.findById(orderId)).thenReturn(Optional.of(order));
+        when(repository.save(any(CompositeOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderResponse response = service.cancelStep(orderId, stepId);
+
+        assertNotNull(response);
+        verify(compensator).compensateSingleStep(eq(orderId), eq(stepId), any(), any());
     }
 }

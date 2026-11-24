@@ -43,7 +43,7 @@ public class BookingStep {
     @Column(nullable = false)
     private BookingType type;
 
-    @Column(name = "resource_id", nullable = false, updatable = false)
+    @Column(name = "resource_id", nullable = false)
     private UUID resourceId;
 
     @Enumerated(EnumType.STRING)
@@ -231,5 +231,31 @@ public class BookingStep {
         if (userMessage != null && !userMessage.isBlank()) {
             this.userMessage = userMessage;
         }
+    }
+
+    public void clearSkipInfo() {
+        this.cancellationReason = null;
+        this.userMessage = null;
+    }
+
+    public void replace(UUID newResourceId, BigDecimal newPrice) {
+        if (newResourceId == null) {
+            throw new InvalidBookingDataException("Resource id must not be null");
+        }
+        if (newPrice != null && newPrice.compareTo(BigDecimal.ZERO) < 0) {
+            throw new InvalidBookingDataException("Step price must not be negative");
+        }
+        this.resourceId = newResourceId;
+        this.price = newPrice != null
+                ? newPrice.setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        this.status = BookingStatus.PENDING;
+        this.externalId = null;
+        this.errorCode = null;
+        this.errorMessage = null;
+        this.userMessage = null;
+        this.errorDetails = null;
+        this.cancellationReason = null;
+        this.rooms.clear();
     }
 }

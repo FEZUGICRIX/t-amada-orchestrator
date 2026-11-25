@@ -17,6 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import java.math.BigDecimal;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.time.Instant;
@@ -596,5 +597,60 @@ class RestBookingClientTest {
                         "/api/v1/transfer/book"
                 )
         );
+    }
+
+    @Test
+    void shouldSerializeSeatsCountAndCategoryCountsWithoutPassengerPiiInBookingRequest() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BookingClient client = new RestBookingClient(
+                BookingType.FLIGHT,
+                builder,
+                URI.create("http://localhost:3001"),
+                "/api/v1/flight/book",
+                "/api/v1/flight/cancel"
+        );
+        UUID resourceId = UUID.randomUUID();
+        UUID bookingReference = UUID.randomUUID();
+        UUID externalBookingId = UUID.randomUUID();
+        Instant createdAt = Instant.parse("2026-03-11T10:15:30Z");
+
+        server.expect(requestTo("http://localhost:3001/api/v1/flight/book"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.seatsCount").value(2))
+                .andExpect(jsonPath("$.adultsCount").value(1))
+                .andExpect(jsonPath("$.childrenCount").value(1))
+                .andExpect(jsonPath("$.infantsCount").value(1))
+                .andExpect(jsonPath("$.passengers").doesNotExist())
+                .andRespond(withSuccess(
+                        """
+                                {
+                                  "id": "%s",
+                                  "bookingReference": "%s",
+                                  "status": "CONFIRMED",
+                                  "createdAt": "%s"
+                                }
+                                """.formatted(externalBookingId, bookingReference, createdAt),
+                        MediaType.APPLICATION_JSON
+                ));
+
+        BookingRequest request = new BookingRequest(
+                resourceId,
+                bookingReference,
+                new BigDecimal("15000.00"),
+                "RUB",
+                2,
+                1,
+                1,
+                1,
+                null,
+                null
+        );
+
+        BookingResponse response = client.book(request);
+
+        assertEquals(externalBookingId, response.id());
+        server.verify();
     }
 }

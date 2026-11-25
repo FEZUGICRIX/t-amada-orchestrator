@@ -117,6 +117,7 @@ public class CompositeOrderService {
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
         validator.validateBookings(request.bookings());
+        validator.validatePassengers(request.passengers());
 
         CompositeOrder order = CompositeOrder.create();
 

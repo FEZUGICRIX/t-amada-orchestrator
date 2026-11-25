@@ -10,6 +10,7 @@ import com.tamada.travel.orchestrator.exception.OrderNotFoundException;
 import com.tamada.travel.orchestrator.model.BookingStep;
 import com.tamada.travel.orchestrator.model.BookingType;
 import com.tamada.travel.orchestrator.model.CompositeOrder;
+import com.tamada.travel.orchestrator.model.PassengerType;
 import com.tamada.travel.orchestrator.repository.CompositeOrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -92,25 +93,28 @@ public class StepExecutor {
                         .toList()
                         : null;
 
-                List<BookingRequest.PassengerDetail> passengers = (order.getPassengers() != null && !order.getPassengers().isEmpty())
-                        ? order.getPassengers().stream()
-                        .map(p -> new BookingRequest.PassengerDetail(
-                                p.getId(),
-                                p.getType() != null ? p.getType().name() : null,
-                                p.getFirstName(),
-                                p.getLastName(),
-                                p.getBirthDate(),
-                                p.getCitizenship(),
-                                p.getDocumentType(),
-                                p.getDocumentNumber()))
-                        .toList()
-                        : null;
+                boolean hasPassengers = order.getPassengers() != null && !order.getPassengers().isEmpty();
+                Integer seatsCount = hasPassengers ? order.calculateSeatsCount() : null;
+                Integer adultsCount = hasPassengers ? order.countPassengersByType(PassengerType.ADULT) : null;
+                Integer childrenCount = hasPassengers ? order.countPassengersByType(PassengerType.CHILD) : null;
+                Integer infantsCount = hasPassengers ? order.countPassengersByType(PassengerType.INFANT) : null;
 
                 BookingRequest.CustomerContactDetail contact = (order.getCustomerContact() != null)
                         ? new BookingRequest.CustomerContactDetail(order.getCustomerContact().getPhone(), order.getCustomerContact().getEmail())
                         : null;
 
-                return new BookingRequest(resourceId, bookingReference, price, "RUB", passengers, rooms, contact);
+                return new BookingRequest(
+                        resourceId,
+                        bookingReference,
+                        price,
+                        "RUB",
+                        seatsCount,
+                        adultsCount,
+                        childrenCount,
+                        infantsCount,
+                        rooms,
+                        contact
+                );
             });
         } catch (Exception ex) {
             return new BookingRequest(resourceId, bookingReference);

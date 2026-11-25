@@ -674,4 +674,26 @@ class CompositeOrderServiceTest {
         assertNotNull(response);
         verify(compensator).compensateSingleStep(eq(orderId), eq(stepId), any(), any());
     }
+
+    @Test
+    void shouldRejectOrderCreationWithInvalidPassengerGroup() {
+        List<CreateBookingStepRequest> bookings = List.of(
+                new CreateBookingStepRequest(BookingType.FLIGHT, UUID.randomUUID(), new BigDecimal("10000.00"))
+        );
+        List<PassengerRequest> passengers = List.of(
+                new PassengerRequest(
+                        PassengerType.INFANT,
+                        "Михаил",
+                        "Иванов",
+                        LocalDate.of(2025, 1, 10),
+                        "Россия",
+                        "Свидетельство о рождении",
+                        "III-ВГ 789012"
+                )
+        );
+        CreateOrderRequest request = new CreateOrderRequest(bookings, passengers, null);
+
+        assertThrows(InvalidBookingDataException.class, () -> service.createOrder(request));
+        verify(repository, never()).save(any());
+    }
 }

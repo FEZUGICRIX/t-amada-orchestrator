@@ -2,8 +2,10 @@ package com.tamada.travel.orchestrator.service.validation;
 
 import com.tamada.travel.orchestrator.dto.CreateBookingStepRequest;
 import com.tamada.travel.orchestrator.dto.HotelRoomRequest;
+import com.tamada.travel.orchestrator.dto.PassengerRequest;
 import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
 import com.tamada.travel.orchestrator.model.BookingType;
+import com.tamada.travel.orchestrator.model.PassengerType;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -47,6 +49,44 @@ public class OrderValidator {
 
         for (var booking : bookings) {
             validateBookingStep(booking);
+        }
+    }
+
+    /**
+     * Проверяет допустимость состава группы пассажиров.
+     * Если список пассажиров не передан или пуст, валидация пропускается (обратная совместимость).
+     * При наличии пассажиров требуется минимум один взрослый (ADULT), а количество младенцев (INFANT)
+     * не может превышать количество взрослых.
+     */
+    public void validatePassengers(List<PassengerRequest> passengers) {
+        if (passengers == null || passengers.isEmpty()) {
+            return;
+        }
+
+        long adultsCount = 0;
+        long infantsCount = 0;
+
+        for (var passenger : passengers) {
+            if (passenger == null) {
+                throw new InvalidBookingDataException("Passenger must not be null");
+            }
+            if (passenger.type() == null) {
+                throw new InvalidBookingDataException("Passenger type must not be null");
+            }
+            if (passenger.type() == PassengerType.ADULT) {
+                adultsCount++;
+            } else if (passenger.type() == PassengerType.INFANT) {
+                infantsCount++;
+            }
+        }
+
+        if (adultsCount == 0) {
+            throw new InvalidBookingDataException("At least one adult passenger is required");
+        }
+        if (infantsCount > adultsCount) {
+            throw new InvalidBookingDataException(
+                    "Number of infants (" + infantsCount + ") cannot exceed number of adults (" + adultsCount + ")"
+            );
         }
     }
 

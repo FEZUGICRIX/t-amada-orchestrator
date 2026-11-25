@@ -142,6 +142,31 @@ public class CompositeOrder {
         passengers.add(passenger);
     }
 
+    /**
+     * Рассчитывает количество требуемых физических мест для группы пассажиров,
+     * исключая младенцев без места (INFANT).
+     */
+    public int calculateSeatsCount() {
+        if (passengers == null || passengers.isEmpty()) {
+            return 0;
+        }
+        return (int) passengers.stream()
+                .filter(p -> p.getType() != PassengerType.INFANT)
+                .count();
+    }
+
+    /**
+     * Подсчитывает количество пассажиров указанной категории.
+     */
+    public int countPassengersByType(PassengerType type) {
+        if (passengers == null || passengers.isEmpty()) {
+            return 0;
+        }
+        return (int) passengers.stream()
+                .filter(p -> p.getType() == type)
+                .count();
+    }
+
     public void setCustomerContact(String phone, String email) {
         if (phone == null && email == null) {
             this.customerContact = null;

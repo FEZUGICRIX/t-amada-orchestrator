@@ -3,14 +3,14 @@ package com.tamada.travel.orchestrator.client.dto;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
 /**
  * Контракт запроса на бронирование услуги во внешнем сервисе поставщика.
- * Содержит полную TravelTech-информацию: ресурс, ссылку брони, стоимость, валюту,
- * список пассажиров/гостей, параметры номеров отеля и контакты заказчика.
+ * Содержит TravelTech-информацию: ресурс, ссылку брони, стоимость, валюту,
+ * количество требуемых физических мест и количество пассажиров по категориям,
+ * параметры номеров отеля и контакты заказчика.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record BookingRequest(
@@ -18,25 +18,15 @@ public record BookingRequest(
         UUID bookingReference,
         BigDecimal price,
         String currency,
-        List<PassengerDetail> passengers,
+        Integer seatsCount,
+        Integer adultsCount,
+        Integer childrenCount,
+        Integer infantsCount,
         List<RoomDetail> rooms,
         CustomerContactDetail customerContact
 ) {
     public BookingRequest(UUID resourceId, UUID bookingReference) {
-        this(resourceId, bookingReference, null, null, null, null, null);
-    }
-
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record PassengerDetail(
-            UUID id,
-            String type,
-            String firstName,
-            String lastName,
-            LocalDate birthDate,
-            String citizenship,
-            String documentType,
-            String documentNumber
-    ) {
+        this(resourceId, bookingReference, null, null, null, null, null, null, null, null);
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

@@ -2,12 +2,16 @@ package com.tamada.travel.orchestrator.service.validation;
 
 import com.tamada.travel.orchestrator.dto.CreateBookingStepRequest;
 import com.tamada.travel.orchestrator.dto.HotelRoomRequest;
+import com.tamada.travel.orchestrator.dto.PassengerRequest;
 import com.tamada.travel.orchestrator.exception.InvalidBookingDataException;
 import com.tamada.travel.orchestrator.model.BookingType;
+import com.tamada.travel.orchestrator.model.PassengerType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -190,5 +194,75 @@ class OrderValidatorTest {
                 () -> validator.validateBookings(bookings)
         );
         assertTrue(ex.getMessage().contains("does not match total room price"));
+    }
+
+    @Test
+    void shouldAcceptNullOrEmptyPassengers() {
+        assertDoesNotThrow(() -> validator.validatePassengers(null));
+        assertDoesNotThrow(() -> validator.validatePassengers(Collections.emptyList()));
+    }
+
+    @Test
+    void shouldAcceptValidPassengerGroup() {
+        List<PassengerRequest> passengers = List.of(
+                passenger(PassengerType.ADULT),
+                passenger(PassengerType.CHILD),
+                passenger(PassengerType.INFANT)
+        );
+
+        assertDoesNotThrow(() -> validator.validatePassengers(passengers));
+    }
+
+    @Test
+    void shouldRejectPassengerGroupWithoutAdult() {
+        List<PassengerRequest> passengers = List.of(
+                passenger(PassengerType.CHILD),
+                passenger(PassengerType.INFANT)
+        );
+
+        InvalidBookingDataException ex = assertThrows(
+                InvalidBookingDataException.class,
+                () -> validator.validatePassengers(passengers)
+        );
+        assertTrue(ex.getMessage().contains("adult"));
+    }
+
+    @Test
+    void shouldRejectPassengerGroupWhenInfantsExceedAdults() {
+        List<PassengerRequest> passengers = List.of(
+                passenger(PassengerType.ADULT),
+                passenger(PassengerType.INFANT),
+                passenger(PassengerType.INFANT)
+        );
+
+        InvalidBookingDataException ex = assertThrows(
+                InvalidBookingDataException.class,
+                () -> validator.validatePassengers(passengers)
+        );
+        assertTrue(ex.getMessage().contains("infants"));
+    }
+
+    @Test
+    void shouldRejectNullPassengerOrNullType() {
+        assertThrows(
+                InvalidBookingDataException.class,
+                () -> validator.validatePassengers(Arrays.asList((PassengerRequest) null))
+        );
+        assertThrows(
+                InvalidBookingDataException.class,
+                () -> validator.validatePassengers(List.of(passenger(null)))
+        );
+    }
+
+    private PassengerRequest passenger(PassengerType type) {
+        return new PassengerRequest(
+                type,
+                "Иван",
+                "Иванов",
+                LocalDate.of(1990, 1, 1),
+                "Россия",
+                "Паспорт РФ",
+                "1234 567890"
+        );
     }
 }

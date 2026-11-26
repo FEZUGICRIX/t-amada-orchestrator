@@ -363,6 +363,19 @@ class CompositeOrderTest {
     }
 
     @Test
+    void shouldCalculateSeatsCountExcludingInfants() {
+        CompositeOrder order = CompositeOrder.create();
+        assertEquals(0, order.calculateSeatsCount());
+
+        order.addPassenger(PassengerType.ADULT, "Иван", "Иванов", LocalDate.of(1990, 1, 1), "RU", "PASSPORT", "1");
+        order.addPassenger(PassengerType.ADULT, "Мария", "Иванова", LocalDate.of(1992, 2, 2), "RU", "PASSPORT", "2");
+        order.addPassenger(PassengerType.CHILD, "Анна", "Иванова", LocalDate.of(2016, 3, 3), "RU", "BIRTH_CERT", "3");
+        order.addPassenger(PassengerType.INFANT, "Михаил", "Иванов", LocalDate.of(2025, 4, 4), "RU", "BIRTH_CERT", "4");
+
+        assertEquals(3, order.calculateSeatsCount());
+    }
+
+    @Test
     void shouldRecordOperationHistory() {
         CompositeOrder order = CompositeOrder.create();
         var history = order.recordOperation(

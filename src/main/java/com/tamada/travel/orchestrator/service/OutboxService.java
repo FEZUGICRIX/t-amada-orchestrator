@@ -159,9 +159,12 @@ public class OutboxService {
                                 roomPayloads = step.getRooms().stream()
                                         .map(r -> new OrderCreatedOutboxPayload.HotelRoomPayload(
                                                 r.getId(),
+                                                r.getVariantId(),
                                                 r.getCategory(),
                                                 r.getTariff(),
+                                                r.getMealType(),
                                                 r.getPrice(),
+                                                r.getCancellationPolicy(),
                                                 r.getStayConditions()))
                                         .toList();
                             }

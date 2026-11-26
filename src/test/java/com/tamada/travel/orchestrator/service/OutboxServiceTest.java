@@ -144,7 +144,15 @@ class OutboxServiceTest {
 
         UUID hotelId = UUID.randomUUID();
         var step = order.addBookingStep(BookingType.HOTEL, hotelId, BigDecimal.ZERO);
-        step.addRoom("Люкс", "С завтраком", new BigDecimal("12000.00"), "Завтрак включен");
+        step.addRoom(
+                "var-luxe-bb",
+                "Люкс",
+                "С завтраком",
+                "BB",
+                new BigDecimal("12000.00"),
+                "Бесплатная отмена за 24 часа",
+                "Завтрак включен"
+        );
         step.addRoom("Стандарт", "Базовый", new BigDecimal("7000.00"), "Без отмены");
         step.recalculatePriceFromRooms();
         order.recalculatePricing();
@@ -168,9 +176,12 @@ class OutboxServiceTest {
         assertNotNull(hotelOption.rooms());
         assertEquals(2, hotelOption.rooms().size());
 
+        assertEquals("var-luxe-bb", hotelOption.rooms().get(0).variantId());
         assertEquals("Люкс", hotelOption.rooms().get(0).category());
         assertEquals("С завтраком", hotelOption.rooms().get(0).tariff());
+        assertEquals("BB", hotelOption.rooms().get(0).mealType());
         assertEquals(new BigDecimal("12000.00"), hotelOption.rooms().get(0).price());
+        assertEquals("Бесплатная отмена за 24 часа", hotelOption.rooms().get(0).cancellationPolicy());
         assertEquals("Завтрак включен", hotelOption.rooms().get(0).stayConditions());
 
         assertEquals("Стандарт", hotelOption.rooms().get(1).category());

@@ -343,7 +343,15 @@ class CompositeOrderServiceTest {
         UUID hotelId = UUID.randomUUID();
 
         List<HotelRoomRequest> rooms = List.of(
-                new HotelRoomRequest("Люкс", "С завтраком", new BigDecimal("12000.00"), "Завтрак включен"),
+                new HotelRoomRequest(
+                        "var-luxe-bb",
+                        "Люкс",
+                        "С завтраком",
+                        "BB",
+                        new BigDecimal("12000.00"),
+                        "Бесплатная отмена до 14:00 дня заезда",
+                        "Завтрак включен"
+                ),
                 new HotelRoomRequest("Стандарт", "Без питания", new BigDecimal("8000.00"), "Невозвратный тариф")
         );
 
@@ -380,9 +388,12 @@ class CompositeOrderServiceTest {
         assertEquals(2, stepResponse.rooms().size());
 
         var room1 = stepResponse.rooms().get(0);
+        assertEquals("var-luxe-bb", room1.variantId());
         assertEquals("Люкс", room1.category());
         assertEquals("С завтраком", room1.tariff());
+        assertEquals("BB", room1.mealType());
         assertEquals(new BigDecimal("12000.00"), room1.price());
+        assertEquals("Бесплатная отмена до 14:00 дня заезда", room1.cancellationPolicy());
         assertEquals("Завтрак включен", room1.stayConditions());
 
         var room2 = stepResponse.rooms().get(1);

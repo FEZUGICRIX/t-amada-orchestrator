@@ -42,11 +42,23 @@ public record BookingRequest(
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record RoomDetail(
             UUID id,
+            String variantId,
             String category,
             String tariff,
+            String mealType,
             BigDecimal price,
+            String cancellationPolicy,
             String stayConditions
     ) {
+        public RoomDetail(
+                UUID id,
+                String category,
+                String tariff,
+                BigDecimal price,
+                String stayConditions
+        ) {
+            this(id, null, category, tariff, null, price, null, stayConditions);
+        }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

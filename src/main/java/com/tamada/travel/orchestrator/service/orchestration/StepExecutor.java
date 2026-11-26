@@ -88,7 +88,15 @@ public class StepExecutor {
 
                 List<BookingRequest.RoomDetail> rooms = (step != null && step.getRooms() != null && !step.getRooms().isEmpty())
                         ? step.getRooms().stream()
-                        .map(r -> new BookingRequest.RoomDetail(r.getId(), r.getCategory(), r.getTariff(), r.getPrice(), r.getStayConditions()))
+                        .map(r -> new BookingRequest.RoomDetail(
+                                r.getId(),
+                                r.getVariantId(),
+                                r.getCategory(),
+                                r.getTariff(),
+                                r.getMealType(),
+                                r.getPrice(),
+                                r.getCancellationPolicy(),
+                                r.getStayConditions()))
                         .toList()
                         : null;
 

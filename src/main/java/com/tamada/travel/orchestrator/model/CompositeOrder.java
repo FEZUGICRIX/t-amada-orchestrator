@@ -337,9 +337,12 @@ public class CompositeOrder {
         if (step.getType() == BookingType.HOTEL && rooms != null && !rooms.isEmpty()) {
             for (var roomReq : rooms) {
                 step.addRoom(
+                        roomReq.variantId(),
                         roomReq.category(),
                         roomReq.tariff(),
+                        roomReq.mealType(),
                         roomReq.price(),
+                        roomReq.cancellationPolicy(),
                         roomReq.stayConditions()
                 );
             }

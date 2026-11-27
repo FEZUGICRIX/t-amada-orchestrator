@@ -38,3 +38,5 @@ saga:
 outbox:
   publisher:
     enabled: false
+  partition:
+    enabled: false

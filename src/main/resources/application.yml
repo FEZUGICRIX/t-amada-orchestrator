@@ -94,6 +94,14 @@ outbox:
     fixed-delay: 500ms
     initial-delay: 1s
     send-timeout: 5s
+  partition:
+    enabled: ${OUTBOX_PARTITION_ENABLED:true}
+    precreate-days: ${OUTBOX_PARTITION_PRECREATE_DAYS:7}
+    retention-days: ${OUTBOX_PARTITION_RETENTION_DAYS:7}
+    cleanup-strategy: ${OUTBOX_PARTITION_CLEANUP_STRATEGY:DROP}
+    archive-schema: ${OUTBOX_PARTITION_ARCHIVE_SCHEMA:outbox_archive}
+    fixed-delay: ${OUTBOX_PARTITION_FIXED_DELAY:1h}
+    initial-delay: ${OUTBOX_PARTITION_INITIAL_DELAY:30s}
 
 security:
   api-key:

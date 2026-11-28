@@ -51,7 +51,7 @@ public class SagaOrchestratorHealthIndicator implements HealthIndicator {
             int pendingCount = outboxRepository.findByStatusOrderByCreatedAtAsc(
                     OutboxStatus.PENDING,
                     PageRequest.of(0, 100)
-            ).size();
+            ).getNumberOfElements();
             details.put("outboxPendingBatchCount", pendingCount);
         } catch (Exception e) {
             details.put("outboxCheckError", e.getMessage());

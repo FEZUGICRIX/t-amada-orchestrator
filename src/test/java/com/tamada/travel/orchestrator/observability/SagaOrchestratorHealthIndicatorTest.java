@@ -13,6 +13,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.SliceImpl;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -44,7 +45,7 @@ class SagaOrchestratorHealthIndicatorTest {
         registry.circuitBreaker("HOTEL");
 
         when(outboxRepository.findByStatusOrderByCreatedAtAsc(eq(OutboxStatus.PENDING), any(Pageable.class)))
-                .thenReturn(List.of());
+                .thenReturn(new SliceImpl<>(List.of()));
 
         Health health = healthIndicator.health();
 
@@ -59,7 +60,7 @@ class SagaOrchestratorHealthIndicatorTest {
         cb.transitionToOpenState();
 
         when(outboxRepository.findByStatusOrderByCreatedAtAsc(eq(OutboxStatus.PENDING), any(Pageable.class)))
-                .thenReturn(List.of(new OutboxMessage("ORDER", "1", "ORDER_CREATED", "{}")));
+                .thenReturn(new SliceImpl<>(List.of(new OutboxMessage("ORDER", "1", "ORDER_CREATED", "{}"))));
 
         Health health = healthIndicator.health();
 

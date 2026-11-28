@@ -285,4 +285,43 @@ class BookingStepTest {
         step.confirm("flight-123");
         assertThrows(InvalidStateTransitionException.class, step::resetToPending);
     }
+
+    @Test
+    void shouldStoreRoomVariantMealTypeAndCancellationPolicy() {
+        CompositeOrder order = CompositeOrder.create();
+        BookingStep hotelStep = new BookingStep(order, BookingType.HOTEL, UUID.randomUUID());
+
+        hotelStep.addRoom(
+                "  var-deluxe-bb-flex  ",
+                "Deluxe",
+                "Гибкий с завтраком",
+                "  BB  ",
+                new BigDecimal("14500.00"),
+                "  Бесплатная отмена до 14:00 дня заезда  ",
+                "Заезд с 14:00"
+        );
+        hotelStep.addRoom(
+                "   ",
+                "Standard",
+                "Невозвратный",
+                "",
+                new BigDecimal("9000.00"),
+                null,
+                null
+        );
+
+        HotelRoom first = hotelStep.getRooms().get(0);
+        assertEquals("var-deluxe-bb-flex", first.getVariantId());
+        assertEquals("Deluxe", first.getCategory());
+        assertEquals("Гибкий с завтраком", first.getTariff());
+        assertEquals("BB", first.getMealType());
+        assertEquals(new BigDecimal("14500.00"), first.getPrice());
+        assertEquals("Бесплатная отмена до 14:00 дня заезда", first.getCancellationPolicy());
+        assertEquals("Заезд с 14:00", first.getStayConditions());
+
+        HotelRoom second = hotelStep.getRooms().get(1);
+        assertNull(second.getVariantId());
+        assertNull(second.getMealType());
+        assertNull(second.getCancellationPolicy());
+    }
 }

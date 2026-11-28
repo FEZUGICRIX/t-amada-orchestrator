@@ -31,14 +31,23 @@ public class HotelRoom {
     @JoinColumn(name = "booking_step_id", nullable = false)
     private BookingStep bookingStep;
 
+    @Column(name = "variant_id", length = 255)
+    private String variantId;
+
     @Column(nullable = false)
     private String category;
 
     @Column(nullable = false)
     private String tariff;
 
+    @Column(name = "meal_type", length = 100)
+    private String mealType;
+
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal price = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+
+    @Column(name = "cancellation_policy", columnDefinition = "TEXT")
+    private String cancellationPolicy;
 
     @Column(name = "stay_conditions", length = 1000)
     private String stayConditions;
@@ -58,6 +67,19 @@ public class HotelRoom {
             BigDecimal price,
             String stayConditions
     ) {
+        this(bookingStep, null, category, tariff, null, price, null, stayConditions);
+    }
+
+    public HotelRoom(
+            BookingStep bookingStep,
+            String variantId,
+            String category,
+            String tariff,
+            String mealType,
+            BigDecimal price,
+            String cancellationPolicy,
+            String stayConditions
+    ) {
         if (category == null || category.isBlank()) {
             throw new InvalidBookingDataException("Room category must not be empty");
         }
@@ -69,11 +91,18 @@ public class HotelRoom {
         }
 
         this.bookingStep = bookingStep;
+        this.variantId = normalizeOptional(variantId);
         this.category = category.trim();
         this.tariff = tariff.trim();
+        this.mealType = normalizeOptional(mealType);
         this.price = price != null
                 ? price.setScale(2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        this.cancellationPolicy = normalizeOptional(cancellationPolicy);
         this.stayConditions = stayConditions != null ? stayConditions.trim() : null;
+    }
+
+    private static String normalizeOptional(String value) {
+        return value != null && !value.isBlank() ? value.trim() : null;
     }
 }

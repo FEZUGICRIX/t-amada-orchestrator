@@ -159,10 +159,25 @@ public record OrderCreatedOutboxPayload(
 
     public record HotelRoomPayload(
             UUID id,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String variantId,
             String category,
             String tariff,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String mealType,
             BigDecimal price,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String cancellationPolicy,
             String stayConditions
     ) {
+        public HotelRoomPayload(
+                UUID id,
+                String category,
+                String tariff,
+                BigDecimal price,
+                String stayConditions
+        ) {
+            this(id, null, category, tariff, null, price, null, stayConditions);
+        }
     }
 }

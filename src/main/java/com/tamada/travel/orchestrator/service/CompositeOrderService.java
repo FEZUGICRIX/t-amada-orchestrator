@@ -137,9 +137,12 @@ public class CompositeOrderService {
             if (booking.type() == BookingType.HOTEL && booking.rooms() != null && !booking.rooms().isEmpty()) {
                 for (var roomReq : booking.rooms()) {
                     step.addRoom(
+                            roomReq.variantId(),
                             roomReq.category(),
                             roomReq.tariff(),
+                            roomReq.mealType(),
                             roomReq.price(),
+                            roomReq.cancellationPolicy(),
                             roomReq.stayConditions()
                     );
                 }

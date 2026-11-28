@@ -108,9 +108,12 @@ public class OrderMapper {
                     roomResponses = step.getRooms().stream()
                             .map(r -> new HotelRoomResponse(
                                     r.getId(),
+                                    r.getVariantId(),
                                     r.getCategory(),
                                     r.getTariff(),
+                                    r.getMealType(),
                                     r.getPrice(),
+                                    r.getCancellationPolicy(),
                                     r.getStayConditions()
                             ))
                             .toList();

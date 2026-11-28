@@ -111,10 +111,31 @@ public class BookingStep {
     }
 
     public void addRoom(String category, String tariff, BigDecimal roomPrice, String stayConditions) {
+        addRoom(null, category, tariff, null, roomPrice, null, stayConditions);
+    }
+
+    public void addRoom(
+            String variantId,
+            String category,
+            String tariff,
+            String mealType,
+            BigDecimal roomPrice,
+            String cancellationPolicy,
+            String stayConditions
+    ) {
         if (this.type != BookingType.HOTEL) {
             throw new InvalidBookingDataException("Rooms can only be added to HOTEL booking step");
         }
-        HotelRoom room = new HotelRoom(this, category, tariff, roomPrice, stayConditions);
+        HotelRoom room = new HotelRoom(
+                this,
+                variantId,
+                category,
+                tariff,
+                mealType,
+                roomPrice,
+                cancellationPolicy,
+                stayConditions
+        );
         this.rooms.add(room);
     }
 

@@ -46,7 +46,15 @@ class OrderMapperTest {
 
         var hotelStep = order.addBookingStep(BookingType.HOTEL, UUID.randomUUID(), new BigDecimal("15000.00"));
         ReflectionTestUtils.setField(hotelStep, "id", UUID.randomUUID());
-        hotelStep.addRoom("Люкс", "С завтраком", new BigDecimal("15000.00"), "Завтрак включен");
+        hotelStep.addRoom(
+                "var-luxe-bb",
+                "Люкс",
+                "С завтраком",
+                "BB",
+                new BigDecimal("15000.00"),
+                "Бесплатная отмена за 24 часа",
+                "Завтрак включен"
+        );
 
         order.addPassenger(
                 PassengerType.ADULT,
@@ -75,7 +83,14 @@ class OrderMapperTest {
         assertEquals(1, hotelResponse.roomsCount());
         assertNotNull(hotelResponse.rooms());
         assertEquals(1, hotelResponse.rooms().size());
-        assertEquals("Люкс", hotelResponse.rooms().get(0).category());
+        var mappedRoom = hotelResponse.rooms().get(0);
+        assertEquals("var-luxe-bb", mappedRoom.variantId());
+        assertEquals("Люкс", mappedRoom.category());
+        assertEquals("С завтраком", mappedRoom.tariff());
+        assertEquals("BB", mappedRoom.mealType());
+        assertEquals(new BigDecimal("15000.00"), mappedRoom.price());
+        assertEquals("Бесплатная отмена за 24 часа", mappedRoom.cancellationPolicy());
+        assertEquals("Завтрак включен", mappedRoom.stayConditions());
     }
 
     @Test
